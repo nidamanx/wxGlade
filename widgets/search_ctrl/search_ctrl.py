@@ -23,9 +23,9 @@ class EditSearchCtrl(ManagedBase, EditStylesMixin):
     PROPERTIES = ManagedBase.PROPERTIES + _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
     #recreate_on_style_change = True
 
-    def __init__(self, name, parent, pos):
+    def __init__(self, name, parent, index):
         # initialize base classes
-        ManagedBase.__init__(self, name, 'wxSearchCtrl', parent, pos)
+        ManagedBase.__init__(self, name, parent, index)
         EditStylesMixin.__init__(self)
 
         # initialize instance properties
@@ -37,7 +37,7 @@ class EditSearchCtrl(ManagedBase, EditStylesMixin):
 
     def create_widget(self):
         value = self.value
-        self.widget = wx.SearchCtrl(self.parent_window.widget, self.id, value=value, style=self.style)
+        self.widget = wx.SearchCtrl(self.parent_window.widget, wx.ID_ANY, value=value, style=self.style)
         self.widget.ShowSearchButton(self.search_button)
         self.widget.ShowCancelButton(self.cancel_button)
         if self.properties["descriptive_text"].is_active():
@@ -45,13 +45,13 @@ class EditSearchCtrl(ManagedBase, EditStylesMixin):
         if self.properties["max_length"].is_active():
             self.widget.SetMaxLength(self.max_length)
 
-    def finish_widget_creation(self, sel_marker_parent=None, re_add=True):
-        ManagedBase.finish_widget_creation(self, sel_marker_parent, re_add)
+    def finish_widget_creation(self, level, sel_marker_parent=None):
+        ManagedBase.finish_widget_creation(self, sel_marker_parent)
         #self.widget.Bind(wx.EVT_SET_FOCUS, self.on_set_focus)
         self.widget.Bind(wx.EVT_CHILD_FOCUS, self.on_set_focus)
         #self.widget.Bind(wx.EVT_TEXT, self.on_set_focus)
 
-    def properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         if "value" in modified and self.widget:
             self.widget.SetValue(self.value)
         if "search_button" in modified and self.widget:
@@ -62,30 +62,25 @@ class EditSearchCtrl(ManagedBase, EditStylesMixin):
             self.widget.SetDescriptiveText(self.descriptive_text)
         if "max_length" in modified and self.widget:
             self.widget.SetMaxLength(self.max_length)
-        EditStylesMixin.properties_changed(self, modified)
-        ManagedBase.properties_changed(self, modified)
+        EditStylesMixin._properties_changed(self, modified, actions)
+        ManagedBase._properties_changed(self, modified, actions)
 
 
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for EditSearchCtrl objects"
     name = parent.toplevel_parent.get_next_contained_name('text_ctrl_%d')
     with parent.frozen():
-        editor = EditSearchCtrl(name, parent, pos)
+        editor = EditSearchCtrl(name, parent, index)
         editor.properties["style"].set_to_default()
         editor.check_defaults()
         if parent.widget: editor.create()
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory function to build EditSearchCtrl objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        name = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditSearchCtrl(name, parent, pos)
+    return EditSearchCtrl(name, parent, index)
 
 
 def initialize():
@@ -94,4 +89,4 @@ def initialize():
     common.widgets['EditSearchCtrl'] = builder
     common.widgets_from_xml['EditSearchCtrl'] = xml_builder
 
-    return common.make_object_button('EditSearchCtrl', 'search_ctrl.xpm')
+    return common.make_object_button('EditSearchCtrl', 'search_ctrl.png')

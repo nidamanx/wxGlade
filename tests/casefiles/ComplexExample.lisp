@@ -104,11 +104,10 @@
         (wxStatusBar_SetStatusText (slot-Mp3-To-Ogg-statusbar obj) "" 1)
         
         ;;; Tool Bar
-        (setf (slot-Mp3-To-Ogg-toolbar obj) (wxToolBar_Create (slot-top-window obj) -1 -1 -1 -1 -1 (logior wxTB_HORIZONTAL wxTB_TEXT)))
+        (setf (slot-Mp3-To-Ogg-toolbar obj) (wxToolBar_Create (slot-top-window obj) -1 -1 -1 -1 -1 (logior wxTB_DEFAULT_STYLE wxTB_TEXT)))
         (wxToolBar_AddTool (slot-Mp3-To-Ogg-toolbar obj) wxID_OPEN (_"&Open") wxNullBitmap wxNullBitmap wxITEM_NORMAL (_"Open a file") (_"Open a MP3 file to convert into OGG format"))
-        (wxToolBar_Realize (slot-Mp3-To-Ogg-toolbar obj))
-        (wxToolBar_Realize (slot-Mp3-To-Ogg-toolbar obj))
         (wxFrame_SetToolBar (slot-top-window obj) (slot-Mp3-To-Ogg-toolbar obj))
+        (wxToolBar_Realize (slot-Mp3-To-Ogg-toolbar obj))
         ;;; Tool Bar end
         
         (setf (slot-sizer-1 obj) (wxGridSizer_Create 3 1 0 0))

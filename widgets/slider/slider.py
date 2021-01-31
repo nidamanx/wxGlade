@@ -8,8 +8,7 @@ wxSlider objects
 """
 
 import wx
-import common, misc
-import wcodegen
+import common
 from edit_windows import ManagedBase, EditStylesMixin
 import new_properties as np
 
@@ -22,8 +21,8 @@ class EditSlider(ManagedBase, EditStylesMixin):
     _PROPERTIES = ["Widget", "range", "value", "style"]
     PROPERTIES = ManagedBase.PROPERTIES + _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
 
-    def __init__(self, name, parent, style, pos):
-        ManagedBase.__init__(self, name, 'wxSlider', parent, pos)
+    def __init__(self, name, parent, index, style):
+        ManagedBase.__init__(self, name, parent, index)
         EditStylesMixin.__init__(self)
 
         # initialise instance properties
@@ -35,9 +34,9 @@ class EditSlider(ManagedBase, EditStylesMixin):
         mi,ma = self.properties["range"].get_tuple()
         value_p = self.properties["value"]
         value = value_p.get()  if value_p.is_active()  else  mi
-        self.widget = wx.Slider(self.parent_window.widget, self.id, value, mi, ma, style=self.style)
+        self.widget = wx.Slider(self.parent_window.widget, wx.ID_ANY, value, mi, ma, style=self.style)
 
-    def properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         if not modified or "range" in modified:
             mi,ma = self.properties["range"].get_tuple()
             if self.widget:
@@ -58,13 +57,14 @@ class EditSlider(ManagedBase, EditStylesMixin):
                     value = ma
                 if self.widget: self.widget.SetValue(value)
 
-        EditStylesMixin.properties_changed(self, modified)
-        ManagedBase.properties_changed(self, modified)
+        EditStylesMixin._properties_changed(self, modified, actions)
+        ManagedBase._properties_changed(self, modified, actions)
 
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for editor objects from GUI"
-    dialog = wcodegen.WidgetStyleSelectionDialog( _('wxSlider'), _('Orientation'), 'wxSL_HORIZONTAL|wxSL_VERTICAL' )
+    import dialogs, misc
+    dialog = dialogs.WidgetStyleSelectionDialog( _('wxSlider'), _('Orientation'), 'wxSL_HORIZONTAL|wxSL_VERTICAL' )
     with misc.disable_stay_on_top(common.adding_window or parent):
         res = dialog.ShowModal()
     style = dialog.get_selection()
@@ -74,20 +74,15 @@ def builder(parent, pos):
 
     name = parent.toplevel_parent.get_next_contained_name('slider_%d')
     with parent.frozen():
-        editor = EditSlider(name, parent, style, pos)
+        editor = EditSlider(name, parent, index, style)
         editor.properties["flag"].set("wxEXPAND")
         if parent.widget: editor.create()
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "Factory to build editor objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        name = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditSlider(name, parent, '', pos)
+    return EditSlider(name, parent, index, '')
 
 
 def initialize():
@@ -95,4 +90,4 @@ def initialize():
     common.widget_classes['EditSlider'] = EditSlider
     common.widgets['EditSlider'] = builder
     common.widgets_from_xml['EditSlider'] = xml_builder
-    return common.make_object_button('EditSlider', 'slider.xpm')
+    return common.make_object_button('EditSlider', 'slider.png')

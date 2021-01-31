@@ -22,9 +22,9 @@ class EditRadioBox(ManagedBase):
     _PROPERTIES = ["Widget", "label", "style", "dimension", "selection", "choices"]
     PROPERTIES = ManagedBase.PROPERTIES + _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
 
-    def __init__(self, name, parent, label, choices, major_dim, style, pos):
+    def __init__(self, name, parent, index, style, label, choices, major_dim):
         "Class to handle wxRadioBox objects"
-        ManagedBase.__init__(self, name, 'wxRadioBox', parent, pos)
+        ManagedBase.__init__(self, name, parent, index)
         self.static_box = None
         
         # initialise instance properties
@@ -32,7 +32,7 @@ class EditRadioBox(ManagedBase):
         self.dimension = np.SpinProperty(major_dim)
         self.selection = np.SpinProperty(0, val_range=(0,len(choices)-1), immediate=True )
         self.choices   = ChoicesProperty( choices, [(_('Label'), np.GridProperty.STRING)] )
-        style = style or wx.RA_SPECIFY_ROWS
+        style = style or wx.RA_SPECIFY_COLS
         styles = [wx.RA_SPECIFY_ROWS, wx.RA_SPECIFY_COLS]
         aliases = ["wxRA_SPECIFY_ROWS","wxRA_SPECIFY_COLS"]  # labels and aliases
         self.style = np.RadioProperty(style, styles, aliases, aliases=aliases, columns=2)
@@ -41,7 +41,7 @@ class EditRadioBox(ManagedBase):
 
     # widget creation / updates ########################################################################################
     def create_widget(self):
-        self.widget = wx.Panel(self.parent_window.widget, self.id)
+        self.widget = wx.Panel(self.parent_window.widget, wx.ID_ANY)
         self.widget.GetBestSize = self.GetBestSize
         self.widget.SetForegroundColour = self.SetForegroundColour
         self.widget.SetBackgroundColour = self.SetBackgroundColour
@@ -93,22 +93,18 @@ class EditRadioBox(ManagedBase):
         for button in buttons_layout:
             w, h = button.GetBestSize()
             sizer.Add(button, 0, wx.EXPAND)
-            sizer.SetItemMinSize(button, w, h)
         self.widget.SetAutoLayout(True)
         sb_sizer = wx.StaticBoxSizer(self.static_box, wx.VERTICAL)
         self.widget.SetSizer(sb_sizer)
         sb_sizer.Add(sizer, 1, wx.EXPAND)
-        sb_sizer.SetMinSize(sizer.GetMinSize())
         sb_sizer.Fit(self.widget)
-        if hasattr(self.parent, "set_item_best_size"):
-            self.parent.set_item_best_size(self, size=self.widget.GetBestSize())
+        self.parent.layout()
 
     def _set_label(self):
         if not self.widget or not self.static_box: return
         label = self.label
         self.static_box.SetLabel(label)
-        if hasattr(self.parent, "set_item_best_size") and not self.properties['size'].is_active():
-            self.parent.set_item_best_size(self, size=self.widget.GetBestSize())
+        self.parent.layout()
 
     def _set_choices(self):
         if not self.widget: return
@@ -156,7 +152,7 @@ class EditRadioBox(ManagedBase):
             return ChoicesHandler(self)
         return ManagedBase.get_property_handler(self, prop_name)
 
-    def properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         # self.selection needs to be in range (0,len(self.choices)-1)
         choices = self.choices
         max_selection = len(choices)-1 if choices else 0
@@ -171,36 +167,30 @@ class EditRadioBox(ManagedBase):
             if self.selection>max_selection:
                 self.properties['selection'].set(max_selection)
             set_selection = True
-        
-        if not modified or "choices" in modified or "dimension" in modified:
+
+        if not modified or "choices" in modified or "dimension" in modified or "style" in modified:
             self._set_choices()  # does also update label
         elif not modified or "label" in modified:
             self._set_label()
-            common.app_tree.refresh(self, refresh_label=True, refresh_image=False)
 
         if self.widget and set_selection:
             self._set_selection()
 
-        ManagedBase.properties_changed(self, modified)
+        ManagedBase._properties_changed(self, modified, actions)
 
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for EditRadioBox objects"
     name = parent.toplevel_parent.get_next_contained_name('radio_box_%d')
     with parent.frozen():
-        editor = EditRadioBox(name, parent, name, [[u'choice 1'],], 1, 0, pos)
+        editor = EditRadioBox(name, parent, index, 0, name, [[u'choice 1'],], 1)
         if parent.widget: editor.create()
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory to build EditRadioBox objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        label = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditRadioBox(label, parent, '', [], 1, 0, pos)
+    return EditRadioBox(name, parent, index, 0, '', [], 1)
 
 
 def initialize():
@@ -209,4 +199,4 @@ def initialize():
     common.widgets['EditRadioBox'] = builder
     common.widgets_from_xml['EditRadioBox'] = xml_builder
 
-    return common.make_object_button('EditRadioBox', 'radio_box.xpm')
+    return common.make_object_button('EditRadioBox', 'radio_box.png')

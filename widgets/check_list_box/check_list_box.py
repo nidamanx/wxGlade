@@ -21,9 +21,10 @@ class EditCheckListBox(ManagedBase, EditStylesMixin):
     WX_CLASS = "wxCheckListBox"
     _PROPERTIES = ["Widget", "style", "selection", "choices"]
     PROPERTIES = ManagedBase.PROPERTIES + _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
+    recreate_on_style_change = True  # otherwise an assertion is triggered
 
-    def __init__(self, name, parent, choices, pos):
-        ManagedBase.__init__(self, name, 'wxCheckListBox', parent, pos)
+    def __init__(self, name, parent, index, choices):
+        ManagedBase.__init__(self, name, parent, index)
         EditStylesMixin.__init__(self)
 
         # initialise instance properties
@@ -32,7 +33,7 @@ class EditCheckListBox(ManagedBase, EditStylesMixin):
 
     def create_widget(self):
         choices = [c[0] for c in self.choices]
-        self.widget = wx.CheckListBox(self.parent_window.widget, self.id, choices=choices)
+        self.widget = wx.CheckListBox(self.parent_window.widget, wx.ID_ANY, choices=choices, style=self.style)
         self.widget.SetSelection(self.selection)
         self.widget.Bind(wx.EVT_LEFT_DOWN, self.on_set_focus)
 
@@ -41,7 +42,7 @@ class EditCheckListBox(ManagedBase, EditStylesMixin):
             return ChoicesHandler(self)
         return ManagedBase.get_property_handler(self, prop_name)
 
-    def properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         # self.selection needs to be in range (-1,len(self.choices))
         choices = self.choices
         max_selection = len(choices)-1
@@ -55,8 +56,7 @@ class EditCheckListBox(ManagedBase, EditStylesMixin):
                 # update widget
                 self.widget.Clear()
                 for c in choices: self.widget.Append(c[0])
-                if hasattr(self.parent, "set_item_best_size") and not self.properties['size'].is_active():
-                    self.sizer.set_item_best_size(self, size=self.widget.GetBestSize())
+                actions.add("layout")
 
         if not modified or "selection" in modified or set_selection:
             if self.selection>max_selection:
@@ -66,29 +66,24 @@ class EditCheckListBox(ManagedBase, EditStylesMixin):
         if self.widget and set_selection:
             self.widget.SetSelection(self.selection)  # -1 is identical to wx.NOT_FOUND
 
-        EditStylesMixin.properties_changed(self, modified)
-        ManagedBase.properties_changed(self, modified)
+        EditStylesMixin._properties_changed(self, modified, actions)
+        ManagedBase._properties_changed(self, modified, actions)
 
 
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for EditCheckListBox objects"
     name = parent.toplevel_parent.get_next_contained_name('check_list_box_%d')
     with parent.frozen():
-        editor = EditCheckListBox(name, parent, [[u'choice 1']], pos)
+        editor = EditCheckListBox(name, parent, index, [[u'choice 1']])
         editor.properties["style"].set_to_default()
         if parent.widget: editor.create()
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory to build EditCheckListBox objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        name = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditCheckListBox(name, parent, [], pos)
+    return EditCheckListBox(name, parent, index, [])
 
 
 def initialize():
@@ -97,4 +92,4 @@ def initialize():
     common.widgets['EditCheckListBox'] = builder
     common.widgets_from_xml['EditCheckListBox'] = xml_builder
 
-    return common.make_object_button('EditCheckListBox', 'list_box.xpm')
+    return common.make_object_button('EditCheckListBox', 'list_box.png')

@@ -20,32 +20,32 @@ class MyFrame(wx.Frame):
         wx.Frame.__init__(self, *args, **kwds)
         self.SetSize((400, 300))
         self.SetTitle("frame")
-        
+
         # Menu Bar
         self.frame_menubar = wx.MenuBar()
         wxglade_tmp_menu = wx.Menu()
         self.frame_menubar.item1 = wxglade_tmp_menu.Append(wx.ID_ANY, "My Menu Item 1", "")
-        self.Bind(wx.EVT_MENU, self.on_menu_item1, id=self.frame_menubar.item1.GetId())
+        self.Bind(wx.EVT_MENU, self.on_menu_item1, self.frame_menubar.item1)
         item = wxglade_tmp_menu.Append(wx.ID_ANY, "My Menu Item 1", "without attribute name")
-        self.Bind(wx.EVT_MENU, self.on_menu_item2, id=item.GetId())
+        self.Bind(wx.EVT_MENU, self.on_menu_item2, item)
         self.frame_menubar.Append(wxglade_tmp_menu, "Menu 1")
         self.SetMenuBar(self.frame_menubar)
         # Menu Bar end
-        
+
         # Tool Bar
         self.frame_toolbar = wx.ToolBar(self, -1)
-        tool = self.frame_toolbar.AddTool(wx.ID_ANY, "My Tool", wx.Bitmap("D:\\Python\\wxglade\\wxglade_dev_master\\icons\\button.xpm", wx.BITMAP_TYPE_ANY), wx.NullBitmap, wx.ITEM_NORMAL, "", "")
+        tool = self.frame_toolbar.AddTool(wx.ID_ANY, "My Tool", wx.Bitmap("..\\..\\icons\\button.png", wx.BITMAP_TYPE_ANY), wx.NullBitmap, wx.ITEM_NORMAL, "", "")
         self.Bind(wx.EVT_TOOL, self.on_my_tool, id=tool.GetId())
-        self.frame_toolbar.Realize()
         self.SetToolBar(self.frame_toolbar)
+        self.frame_toolbar.Realize()
         # Tool Bar end
-        
+
         sizer_1 = wx.BoxSizer(wx.VERTICAL)
-        
+
         sizer_1.Add((0, 0), 0, 0, 0)
-        
+
         self.SetSizer(sizer_1)
-        
+
         self.Layout()
 
         # end wxGlade

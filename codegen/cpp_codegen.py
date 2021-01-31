@@ -8,12 +8,11 @@ C++ code generator
 """
 
 
-import os.path, re
+import os.path, re, logging
 
 from codegen import BaseLangCodeWriter, BaseSourceFileContent, _replace_tag
 from codegen import ClassLines as BaseClassLines
-import config
-import wcodegen
+import config, wcodegen
 
 
 class SourceFileContent(BaseSourceFileContent):
@@ -455,7 +454,7 @@ class CPPCodeWriter(BaseLangCodeWriter, wcodegen.CppMixin):
                         deps.update(code.dependencies)
                     lines = self._format_dependencies( deps )
                 elif tag[2] == 'methods':
-                    lines = '%svoid set_properties();\n%svoid do_layout();\n' % (self.tabs(1), self.tabs(1))
+                    lines = ''
                 else:
                     lines = '// content of this block (%s) not found: did you rename this class?\n' % tag[2]
                 self.previous_source.replace_header(tag[0], lines)
@@ -509,7 +508,7 @@ class CPPCodeWriter(BaseLangCodeWriter, wcodegen.CppMixin):
         try:
             builder = self.obj_builders[code_obj.WX_CLASS]
         except KeyError:
-            self._logger.error('%s', code_obj)
+            logging.error('%s', code_obj)
             # this is an error, let the exception be raised; the details are logged by the global exception handler
             raise
         ret = self.classes[code_obj] = self.ClassLines()  # ClassLines will collect the code lines incl. children
@@ -554,18 +553,18 @@ class CPPCodeWriter(BaseLangCodeWriter, wcodegen.CppMixin):
         if extra_code:
             extra_code = re.sub(r'\\n', '\n', extra_code)
             extra_code = re.split(re.compile(r'^###\s*$', re.M), extra_code, 1)
-            klass.extra_code_h.append(extra_code[0])
+            klass.extra_code_h.append(extra_code[0].rstrip())
             if len(extra_code) > 1:
-                klass.extra_code_cpp.append(extra_code[1])
+                klass.extra_code_cpp.append(extra_code[1].rstrip())
             if not is_new:
                 self.warning( '%s has extra code, but you are not overwriting existing sources:'
                               ' please check that the resulting code is correct!' % code_obj.name )
 
         if not self.multiple_files:
             if klass.extra_code_h:
-                self._current_extra_code_h.append( "".join( klass.extra_code_h[::-1] ) )
+                self._current_extra_code_h.append( "\n".join( klass.extra_code_h[::-1] ) )
             if klass.extra_code_cpp:
-                self._current_extra_code_cpp.append( "".join( klass.extra_code_cpp[::-1] ) )
+                self._current_extra_code_cpp.append( "\n".join( klass.extra_code_cpp[::-1] ) )
 
         default_sign = [('wxWindow*', 'parent'), ('wxWindowID', 'id')]
         sign = getattr(builder, 'constructor', default_sign)
@@ -585,9 +584,7 @@ class CPPCodeWriter(BaseLangCodeWriter, wcodegen.CppMixin):
         sign_inst = ', '.join([t[1] for t in sign])
 
         # custom base classes support
-        custom_base = getattr(code_obj, 'custom_base', code_obj.properties.get('custom_base', None))
-        if custom_base and not custom_base.strip():
-            custom_base = None
+        custom_base = code_obj.check_prop_nodefault('custom_base') and code_obj.custom_base.strip() or None
 
         # the header and code lines
         header_buffer = []
@@ -672,7 +669,7 @@ class CPPCodeWriter(BaseLangCodeWriter, wcodegen.CppMixin):
 
             # remove methods block if in old file
             tag = '<%swxGlade replace %s methods>' % (self.nonce, classname)
-            prev_src.replace(tag, [])
+            prev_src.replace_header(tag, [])
 
             header_buffer = []
             hwrite = header_buffer.append
@@ -736,8 +733,10 @@ class CPPCodeWriter(BaseLangCodeWriter, wcodegen.CppMixin):
                 swrite(tab + l)
 
         # set size here to avoid problems with splitter windows
-        if 'size' in code_obj.properties and code_obj.properties["size"].is_active():
+        if code_obj.check_prop('size'):
             swrite( tab + self.generate_code_size(code_obj) )
+        if code_obj.check_prop('min_size'):
+            swrite( tab + self.generate_code_size(code_obj, code_obj.min_size, "SetMinSize") )
 
         for l in builder.get_properties_code(code_obj):
             swrite(tab + l)
@@ -904,9 +903,9 @@ class CPPCodeWriter(BaseLangCodeWriter, wcodegen.CppMixin):
             self.output_header.extend(header_buffer)
             self.output_file.extend(source_buffer)
 
-    def add_object(self, klass, parent, parent_builder, obj):
+    def add_object(self, parent_klass, parent, parent_builder, obj):
         # get the widget builder instance
-        builder = self._get_object_builder(klass, obj)
+        builder = self._get_object_builder(parent_klass, obj)
         if not builder: return None
 
         try:
@@ -925,44 +924,46 @@ class CPPCodeWriter(BaseLangCodeWriter, wcodegen.CppMixin):
 
             mycn = getattr(builder, 'cn', self.cn)
             for win_id, evt, handler, evt_type in builder.get_event_handlers(obj):
-                klass.event_handlers.append( (win_id, mycn(evt), handler, evt_type) )
+                parent_klass.event_handlers.append( (win_id, mycn(evt), handler, evt_type) )
 
             # try to see if there's some extra code to add to this class
             extra_code = getattr(builder, 'extracode', getattr(obj, 'extracode', "") or "" )
             if extra_code:
                 extra_code = re.sub(r'\\n', '\n', extra_code)
                 extra_code = re.split(re.compile(r'^###\s*$', re.M), extra_code, 1)
-                klass.extra_code_h.append(extra_code[0])
+                parent_klass.extra_code_h.append(extra_code[0].rstrip())
                 if len(extra_code) > 1:
-                    klass.extra_code_cpp.append(extra_code[1])
+                    parent_klass.extra_code_cpp.append(extra_code[1].rstrip())
                 # if we are not overwriting existing source, warn the user about the presence of extra code
                 if not self.multiple_files and self.previous_source:
                     self.warning( '%s has extra code, but you are not overwriting existing sources: please check '
                                   'that the resulting code is correct!' % obj.name )
 
-            klass.ids.extend(ids)
-            # attribute is a special property which control whether sub_obj must be accessible as an attribute of
-            # top_obj, or as a local variable in the do_layout method
-            if self.store_as_attr(obj):
-                klass.sub_objs.append((obj.klass, obj.name))
-        elif obj.klass != "sizerslot":
-            # the object is a sizer
-            if self.store_as_attr(obj):
-                klass.sub_objs.append((obj.klass, obj.name))
+            parent_klass.ids.extend(ids)
 
-        klass.init.extend(init)
+        if self.store_as_attr(obj):
+            if obj.check_prop("instance_class"):
+                klassname = obj.instance_class
+            else:
+                klassname = obj.get_prop_value("class", obj.WX_CLASS)
+            parent_klass.sub_objs.append( (klassname, obj.name) )
+
+        parent_klass.init.extend(init)
+
+        if obj.check_prop_truth("max_size"):
+            parent_klass.init.append( self.generate_code_size(obj, obj.max_size, "SetMaxSize") )
 
         if parent_builder:  # add to sizer or notebook
-            klass.init.extend( parent_builder.get_code_per_child(parent, obj) )
+            parent_klass.init.extend( parent_builder.get_code_per_child(parent, obj) )
 
 
-        klass.final[:0] = final
-        if self.multiple_files and (obj.IS_CLASS and obj.WX_CLASS != obj.klass):
-            klass.dependencies.append(obj.klass)
+        parent_klass.final[:0] = final
+        if self.multiple_files and obj.IS_CLASS:
+            parent_klass.dependencies.append(obj.klass)
         else:
             if obj.WX_CLASS in self.obj_builders:
                 headers = getattr(self.obj_builders[obj.WX_CLASS], 'import_modules', [])
-                klass.dependencies.update(headers)
+                parent_klass.dependencies.update(headers)
         return builder
 
     def generate_code_event_handler(self, code_obj, is_new, tab, prev_src, event_handlers):
@@ -1074,15 +1075,17 @@ void %(klass)s::%(handler)s(%(evt_type)s &event)  // wxGlade: %(klass)s.<event_h
             val = val
         return '%s = %s' % (name, val), name
 
-    def generate_code_size(self, obj):
+    def generate_code_size(self, obj, size=None, method=None):
         objname = self.format_generic_access(obj)
         if obj.IS_CLASS:
             name2 = 'this'
         else:
             name2 = obj.name
-        size = obj.properties["size"].get_string_value()
+        if size is None:
+            size = obj.properties["size"].get_string_value()
         use_dialog_units = (size[-1] == 'd')
-        method = 'SetMinSize'  if obj.parent_window else  'SetSize'
+        if method is None:
+            method = 'SetMinSize'  if obj.parent_window else  'SetSize'
 
         if use_dialog_units:
             return '%s%s(wxDLG_UNIT(%s, wxSize(%s)));\n' % (objname, method, name2, size[:-1])

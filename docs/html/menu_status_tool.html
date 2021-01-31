@@ -5,14 +5,14 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <title>Menu, Status Bar, Tool Bar &#8212; wxGlade 0.9.3 documentation</title>
+    <title>Menu, Status Bar, Tool Bar &#8212; wxGlade 1.0.0 documentation</title>
     <link rel="stylesheet" href="_static/classic.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    './',
-        VERSION:     '0.9.3',
+        VERSION:     '1.0.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true,
@@ -25,7 +25,7 @@
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Bitmaps" href="bitmaps.html" />
-    <link rel="prev" title="Create and Use Source Code" href="source_code.html" /> 
+    <link rel="prev" title="Custom Widget" href="custom_widgets.html" /> 
   </head>
   <body>
     <div class="related" role="navigation" aria-label="related navigation">
@@ -38,9 +38,9 @@
           <a href="bitmaps.html" title="Bitmaps"
              accesskey="N">next</a> |</li>
         <li class="right" >
-          <a href="source_code.html" title="Create and Use Source Code"
+          <a href="custom_widgets.html" title="Custom Widget"
              accesskey="P">previous</a> |</li>
-        <li class="nav-item nav-item-0"><a href="index.html">wxGlade 0.9.3 documentation</a> &#187;</li> 
+        <li class="nav-item nav-item-0"><a href="index.html">wxGlade 1.0.0 documentation</a> &#187;</li> 
       </ul>
     </div>  
 
@@ -193,10 +193,28 @@ In the latter case, you should have enabled <em>Properties -&gt; Application -&g
 </ul>
 </dd>
 </dl>
+<div class="section" id="lambda-event-handlers">
+<h3>Lambda Event Handlers<a class="headerlink" href="#lambda-event-handlers" title="Permalink to this headline">¶</a></h3>
+<p>When creating Python code, you may also specify a lambda function as event handler.</p>
+<p>E.g. you may want to have three menu items named <code class="code docutils literal"><span class="pre">Insert</span> <span class="pre">A</span></code>, <code class="code docutils literal"><span class="pre">Insert</span> <span class="pre">B</span></code> and <code class="code docutils literal"><span class="pre">Insert</span> <span class="pre">C</span></code>.
+Instead of three separate handlers, you may enter three lambda functions that will call the same method or function
+with different arguments each:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="100%" />
+</colgroup>
+<tbody valign="top">
+<tr class="row-odd"><td><img alt="lambda evt: self.on_menu_insert_abc(&quot;A&quot;)" class="first last" src="_images/MenuLambdaEventHandlers.png" />
+</td>
+</tr>
+</tbody>
+</table>
+<p>Of course you need to implement a method <code class="code docutils literal"><span class="pre">on_menu_insert_abc</span></code>.</p>
+</div>
 </div>
 <div class="section" id="status-bar-editor">
 <h2>Status Bar Editor<a class="headerlink" href="#status-bar-editor" title="Permalink to this headline">¶</a></h2>
-<p>To attach a status bar to a frame, go to <em>Properties -&gt; Widget</em> and check <span class="guilabel">Has StatusBar</span>.
+<p>To attach a status bar to a frame, go to <em>Properties -&gt; Widget</em> and check cHas StatusBar`.
 This will add a statusbar icon to the <em>Tree</em> window, just below the frame’s icon.
 (Similar to <span class="guilabel">Has MenuBar</span> in the first screenshot on this page.)</p>
 <p>To add/remove fields to the status bar, go to <em>Properties -&gt; Widget -&gt; Fields</em> and use
@@ -239,7 +257,10 @@ two growing and two fixed size fields</td>
   <h3><a href="index.html">Table Of Contents</a></h3>
   <ul>
 <li><a class="reference internal" href="#">Menu, Status Bar, Tool Bar</a><ul>
-<li><a class="reference internal" href="#menu-editor">Menu Editor</a></li>
+<li><a class="reference internal" href="#menu-editor">Menu Editor</a><ul>
+<li><a class="reference internal" href="#lambda-event-handlers">Lambda Event Handlers</a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#status-bar-editor">Status Bar Editor</a></li>
 <li><a class="reference internal" href="#tool-bar-editor">Tool Bar Editor</a></li>
 </ul>
@@ -247,8 +268,8 @@ two growing and two fixed size fields</td>
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="source_code.html"
-                        title="previous chapter">Create and Use Source Code</a></p>
+  <p class="topless"><a href="custom_widgets.html"
+                        title="previous chapter">Custom Widget</a></p>
   <h4>Next topic</h4>
   <p class="topless"><a href="bitmaps.html"
                         title="next chapter">Bitmaps</a></p>
@@ -283,9 +304,9 @@ two growing and two fixed size fields</td>
           <a href="bitmaps.html" title="Bitmaps"
              >next</a> |</li>
         <li class="right" >
-          <a href="source_code.html" title="Create and Use Source Code"
+          <a href="custom_widgets.html" title="Custom Widget"
              >previous</a> |</li>
-        <li class="nav-item nav-item-0"><a href="index.html">wxGlade 0.9.3 documentation</a> &#187;</li> 
+        <li class="nav-item nav-item-0"><a href="index.html">wxGlade 1.0.0 documentation</a> &#187;</li> 
       </ul>
     </div>
     <div class="footer" role="contentinfo">

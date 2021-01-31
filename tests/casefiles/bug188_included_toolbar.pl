@@ -38,14 +38,14 @@ sub new {
     # Tool Bar
     $self->{frame_1_toolbar} = Wx::ToolBar->new($self, -1);
     $self->{frame_1_toolbar}->AddTool(wxID_UP, "UpDown", Wx::ArtProvider::GetBitmap(wxART_GO_UP, wxART_OTHER, Wx::Size->new(32, 32)), Wx::ArtProvider::GetBitmap(wxART_GO_DOWN, wxART_OTHER, Wx::Size->new(32, 32)), wxITEM_CHECK, "Up or Down", "Up or Down");
-    $self->{frame_1_toolbar}->Realize();
     $self->SetToolBar($self->{frame_1_toolbar});
+    $self->{frame_1_toolbar}->Realize();
     # Tool Bar end
     
     $self->{sizer_1} = Wx::BoxSizer->new(wxVERTICAL);
     
-    $self->{label_1} = Wx::StaticText->new($self, wxID_ANY, "placeholder - every design\nneeds a toplevel window", wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER);
-    $self->{sizer_1}->Add($self->{label_1}, 1, wxALIGN_CENTER|wxALL|wxEXPAND, 0);
+    $self->{label_1} = Wx::StaticText->new($self, wxID_ANY, "placeholder - every design\nneeds a toplevel window", wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
+    $self->{sizer_1}->Add($self->{label_1}, 1, wxALL|wxEXPAND, 0);
     
     $self->SetSizer($self->{sizer_1});
     

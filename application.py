@@ -82,28 +82,23 @@ class EditRoot(np.PropertyOwner):
         return False
 
     def get_path(self):
-        return [self.name]
+        return self.name
 
-    #def has_name(self, widget=None):
-        ## XXX check whether this is still used
-        #if widget is None:
-            #for c in self.children:
-                #if name in c.names:
-                    #return True
-            #return False
-        #return name in widget.toplevel_parent.names
-
-    def add_item(self, child, pos=None):
-        # XXX pos is always None at the moment
-        if pos is None:
+    def add_item(self, child, index=None):
+        # XXX index is always None at the moment
+        if index is None:
             self.children.append(child)
         else:
-            i = pos - 1  # XXX not correct, pos is 0-based now
-            if len(self.children)<=i:
-                self.children += [None]*(i - len(self.children) + 1)
-            self.children[i] = child
+            if len(self.children)<=index:
+                self.children += [None]*(index - len(self.children) + 1)
+            self.children[index] = child
         if child.IS_TOPLEVEL_WINDOW:
             self.add_top_window(child.name)
+
+    def remove_item(self, child, level=0, dummy=False):
+        if child.IS_TOPLEVEL_WINDOW:
+            self.remove_top_window(child.name)
+        self.children.remove(child)
 
     def write(self, output, tabs=0):
         """Writes the xml equivalent of this tree to the given output file.
@@ -138,12 +133,8 @@ class EditRoot(np.PropertyOwner):
 
         output.extend( common.format_xml_tag( u'application', inner_xml, is_xml=True, **attrs ) )
 
-    def recursive_remove(self):
-        # clear all
-        for n in self.children:
-            n.recursive_remove()
-
     def find_widget_from_path(self, path):
+        path = path.split("/")
         index = 1  # skip 'app'
         w = self
         for index in range(1, len(path)):
@@ -152,23 +143,31 @@ class EditRoot(np.PropertyOwner):
                 if pos<len(w.children) and w.children[pos].IS_SLOT:
                     w = w.children[pos]
                     continue
-            children = [c for c in w.children if c.name==path[index]]
+            children = [c for c in w.get_all_children() if c.name==path[index]]
             if not children: return None
             w = children[0]
         return w
 
     def clear(self):
         # delete all children; call common.root.new() or .init() afterwards
-        if self.children:
-            while self.children:
-                c = self.children[-1]
-                if c: c.remove()
+        while self.children:
+            self.children[-1].recursive_remove(0)
 
-    def _get_parent_tooltip(self, pos):
+    def _get_parent_tooltip(self, index):
         return None
 
     def _get_tooltip_string(self):
         return None
+
+    # use following to track toplevel windows?
+    def child_widget_created(self, child, level):
+        pass
+
+    def destroying_child_widget(self, child, index):
+        pass
+
+    def destroyed_child_widget(self):
+        pass
 
 
 class Application(EditRoot):
@@ -218,7 +217,6 @@ class Application(EditRoot):
 
     def __init__(self):
         np.PropertyOwner.__init__(self)
-        self._logger = logging.getLogger(self.__class__.__name__)
 
         self.__saved    = True  # raw value for self.saved property; if True, there are no changes to save
         self.__filename = None  # raw value for the self.filename property; Name of the output XML file
@@ -346,7 +344,6 @@ class Application(EditRoot):
         self.properties["source_extension"].set_blocked(blocked)
         self.properties["header_extension"].set_blocked(blocked)
 
-
     # properties: saved and filename
     def _get_saved(self):
         return self.__saved
@@ -354,29 +351,25 @@ class Application(EditRoot):
         if self.__saved != value:
             self.__saved = value
             if not config.use_gui: return
-            t = common.main.GetTitle().strip()
-            if not value:
-                common.main.SetTitle('* ' + t)
-            else:
-                if t[0] == '*':
-                    common.main.SetTitle(t[1:].strip())
+            self._set_title()
     saved = property(_get_saved, _set_saved)
+
     def _get_filename(self):
         return self.__filename
     def _set_filename(self, value):
         if self.__filename != value:
             self.__filename = value
-            if not config.use_gui: return
-            if self.__saved:
-                flag = ' '
-            else:
-                flag = '* '
-            if self.__filename is not None:
-                title = '%s(%s)' % (flag, self.__filename)
-            else:
-                title = flag
-            common.main.SetTitle( _('wxGlade: %s') % title )
+            self._set_title()
     filename = property(_get_filename, _set_filename)
+
+    def _set_title(self):
+        if not config.use_gui: return
+        title = ["wxGlade: "]
+        if not self.__saved:
+            title.append( "* " )
+        if self.__filename:
+            title.append( "(%s)"%self.__filename )
+        common.main.SetTitle( "".join(title).strip() )
 
     # interface from tree ##############################################################################################
     # handle top_window property choices
@@ -390,7 +383,6 @@ class Application(EditRoot):
 
     def remove_top_window(self, name):
         p = self.properties["top_window"]
-        print("REMOVE TOP WINDOW", name, self)
         p.remove_choice(name)
 
     def update_top_window_name(self, oldname, newname):
@@ -411,7 +403,7 @@ class Application(EditRoot):
         return toplevel
 
     ####################################################################################################################
-    def properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         # ['encoding', 'output_path', 'class', 'name', 'multiple_files', 'language', 'top_window', 'use_gettext',
         # 'use_gettext', 'is_template', 'overwrite', 'indent_mode', 'indent_amount', 'for_version', 'source_extension',
         # 'header_extension']
@@ -427,6 +419,14 @@ class Application(EditRoot):
             if block:
                 self.properties["mark_blocks"].set(True)
             self.properties["mark_blocks"].set_blocked(block)
+        if modified and len(modified)==1 and "multiple_files" in modified:
+            # the user has just edited
+            p = self.properties["output_path"]
+            if self.multiple_files:
+                p.set(os.path.dirname(p.value) or ".")
+            else:
+                extension = common.code_writers[self.language].default_extensions[0]
+                p.set( os.path.join(p.value or "", "wxglade_out.%s"%extension) )
 
     def _init(self):
         # common part for init and new
@@ -462,12 +462,10 @@ class Application(EditRoot):
         self.properties_changed(None)
 
     def generate_code(self, preview=False, out_path=None, widget=None):
-        if config.use_gui:
-            common.property_panel.flush()
-        else:
-            np.flush_current_property()
+        np.flush_current_property()
         if out_path is None:
             out_path = os.path.expanduser(self.output_path.strip())
+            if not out_path and self.multiple_files: out_path = "."
             if not os.path.isabs(out_path) and (out_path and self.filename):
                 out_path = os.path.join(os.path.dirname(self.filename), out_path)
                 out_path = os.path.normpath(out_path)
@@ -488,9 +486,9 @@ class Application(EditRoot):
                                            "application." )
 
         if preview:
-            writer = common.code_writers["python"].copy()
+            writer = common.code_writers["preview"]
         else:
-            writer = common.code_writers[self.language]#.copy()
+            writer = common.code_writers[self.language]
 
         error = writer.new_project(self, out_path, preview)
         if error:
@@ -513,12 +511,13 @@ class Application(EditRoot):
             return
         except Exception as inst:
             # unexpected / internal error
+            if config.testing or config.debugging: raise
             bugdialog.Show(_('Generate Code'), inst)
             return
         finally:
             writer.clean_up(widget or self)
 
-        if preview or not config.use_gui: return
+        if preview or not config.use_gui: return writer
         if config.preferences.show_completion:
             # Show informational dialog
             misc.info_message("Code generation completed successfully")
@@ -527,7 +526,6 @@ class Application(EditRoot):
             app = wx.GetApp()
             frame = app.GetTopWindow()
             frame.user_message(_('Code generated'))
-
 
     def is_visible(self):
         return True
@@ -545,6 +543,7 @@ class Application(EditRoot):
             else:
                 dirname, basename = os.path.split(self.filename)
                 basename, extension = os.path.splitext(basename)
+                basename = basename.replace(".", "_")
                 if not os.path.exists(dirname):
                     error = "Directory '%s' not found"%dirname
                 elif not os.path.isdir(dirname):
@@ -570,19 +569,22 @@ class Application(EditRoot):
             importlib.invalidate_caches()
 
         # make a valid name for the class (this can be invalid for some sensible reasons...)
-        preview_classname = widget.klass.split('.')[-1].split(':')[-1]
+        preview_classname = widget.WX_CLASS.split('.')[-1].split(':')[-1]
         # randomize the class name to make preview work when there are multiple classes with the same name (e.g. XRC)
         preview_classname = '_%d_%s' % (random.randrange(10 ** 8, 10 ** 9), preview_classname)
         widget.properties["class"].set_temp(preview_classname)
 
         frame = None
         try:
-            self.generate_code(True, preview_filename, widget)
+            # create preview module
+            writer = self.generate_code(True, preview_filename, widget)
             # import generated preview module dynamically
             preview_path = os.path.dirname(preview_filename)
             preview_module_name = os.path.basename(preview_filename)
             preview_module_name = os.path.splitext(preview_module_name)[0]
-            preview_module = plugins.import_module(preview_path, preview_module_name)
+            if preview_path not in sys.path: sys.path.append(preview_path)
+            preview_module = __import__(preview_module_name, {}, {}, ['just_not_empty'])
+
             if not preview_module:
                 misc.error_message( _('Can not import the preview module from file \n"%s".\n'
                                       'The details are written to the log file.\n'
@@ -592,9 +594,12 @@ class Application(EditRoot):
             try:
                 preview_class = getattr(preview_module, preview_classname) # .klass)
             except AttributeError:
-                # module loade previously -> do a re-load XXX this is required for Python 3; check alternatives
-                import importlib
-                preview_module = importlib.reload(preview_module)
+                # module loaded previously -> do a re-load XXX this is required for Python 3; check alternatives
+                if sys.version_info.major<3:
+                    preview_module = reload(preview_module)
+                else:
+                    import importlib
+                    preview_module = importlib.reload(preview_module)
                 preview_class = getattr(preview_module, preview_classname)
 
             if not preview_class:
@@ -658,7 +663,14 @@ class Application(EditRoot):
             if config.debugging or config.testing: raise
             widget.preview_widget = None
             widget.properties["preview"].set_label(_('Show Preview'))
-            bugdialog.Show(_("Generate Preview"), inst)
+            if writer.have_extracode:
+                # could be caused by user code: just report
+                msg = ["Exception during preview, potentially due to invalid code in custom widget:","",
+                       inst.__class__.__name__, inst.msg]
+                wx.MessageBox("\n".join(msg), "Preview Error", wx.CANCEL|wx.CENTRE|wx.ICON_EXCLAMATION, parent=common.main)
+            else:
+                # internal error to be reported
+                bugdialog.Show(_("Generate Preview"), inst)
 
         return frame
     
@@ -688,7 +700,7 @@ class Application(EditRoot):
                 xrcgen = common.code_writers['XRC']
                 ok = xrcgen.obj_builders.get(cname, None) is not xrcgen.NotImplementedXrcObject
             if not ok:
-                self._logger.warn( _('No %s code generator for %s (of type %s) available'),
+                logging.warn( _('No %s code generator for %s (of type %s) available'),
                                    misc.capitalize(language), widget.name, cname )
         else:
             # in this case, we check all the widgets in the tree

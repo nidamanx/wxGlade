@@ -27,6 +27,7 @@ window_data_format = DataFormat("wxglade.window")  # a toplevel window
 
 menubar_data_format = DataFormat("wxglade.menubar")  # a serialized menubar
 toolbar_data_format = DataFormat("wxglade.toolbar")  # a serialized toolbar
+statusbar_data_format = DataFormat("wxglade.statusbar")  # a serialized statusbar
 
 
 _current_drag_source = None  # reference to drag start; used when dragging within application
@@ -41,12 +42,12 @@ def begin_drag(window, widget):
     do = get_data_object(widget)
     set_drag_source(widget)
 
-    if isinstance(widget, edit_sizers.Sizer):
+    if widget.IS_SIZER:
         msg = "Move sizer to empty or populated slot to insert, to a sizer to append; hold Ctrl to copy"
     elif widget.IS_TOPLEVEL:
         msg = "Move window to application object; hold Ctrl to copy"
-    elif widget.WX_CLASS in ("wxToolBar", "wxMenuBar"):
-        msg = "Move tool or menu bar to application object or frame; hold Ctrl to copy"
+    elif widget.WX_CLASS in ("wxToolBar", "wxMenuBar", "wxStatusBar"):
+        msg = "Move tool, menu or status bar to application object or frame; hold Ctrl to copy"
     else:
         msg = "Move control to empty or populated slot to insert, to a sizer to append; hold Ctrl to copy"
     common.main.user_message( msg )
@@ -72,7 +73,8 @@ class DropTarget(wx.DropTarget):
     def _create_data_objects(self, toplevel=False):
         data_objects = {}
         data_object = wx.DataObjectComposite()
-        formats = [widget_data_format, sizer_data_format, menubar_data_format, toolbar_data_format]
+        formats = [widget_data_format, sizer_data_format,
+                   menubar_data_format, toolbar_data_format, statusbar_data_format]
         if toplevel: formats.append(window_data_format)
         for fmt in formats:
             do = wx.CustomDataObject(fmt)
@@ -135,18 +137,26 @@ class DropTarget(wx.DropTarget):
         # check only if position changed
         if not self._last_check or x!=self._last_check[0] or y!=self._last_check[1]:
             self._last_check = (x,y, self._check_compatibility(x, y)[0] )
-        return self._last_check[2] and default or wx.DragNone
+        ret = self._last_check[2] and default or wx.DragNone
+        self._last_on_drag_over = ret
+        return ret
 
     def OnData(self, x,y,default):
         compatible, message = self._check_compatibility(x,y)
         if not compatible: return wx.DragCancel
 
+        # workaround for wxPython 4.1
+        if default == wx.DragNone and hasattr(self, "_last_on_drag_over"):
+            default = self._last_on_drag_over
+
+        copy = (default==wx.DragCopy)
+
+        src_widget = None
         dst_widget = self.window.find_editor_by_pos(x,y)
 
         if _current_drag_source:
             src_widget = _current_drag_source  # was set in begin_drag
 
-            copy = (default==wx.DragCopy)
             if not copy and _current_drag_source is misc.focused_widget:
                 if hasattr(_current_drag_source, "parent"):
                     misc.set_focused_widget(_current_drag_source.parent)
@@ -160,9 +170,9 @@ class DropTarget(wx.DropTarget):
             dst_widget = dst_widget.children[-1] # the slot
         elif compatible=="Slot":
             # insert a slot or fill empty slot
-            pos = dst_widget.pos
-            dst_widget.sizer._insert_slot(pos)
-            dst_widget = dst_widget.sizer.children[pos] # the slot
+            index = dst_widget.index
+            dst_widget.sizer._insert_slot(index)
+            dst_widget = dst_widget.sizer.children[index] # the slot
         elif compatible=="Reorder":
             # a toplevel dragged onto another toplevel
             # internal drag: just re-order; external drag: paste before
@@ -185,7 +195,7 @@ class DropTarget(wx.DropTarget):
             if dst_widget.IS_SLOT:
                 # fill slot with a StaticBitmap 
                 import widgets.static_bitmap.static_bitmap
-                new_widget = widgets.static_bitmap.static_bitmap.builder(dst_widget.parent, dst_widget.pos, bitmap)
+                new_widget = widgets.static_bitmap.static_bitmap.builder(dst_widget.parent, dst_widget.index, bitmap)
                 misc.rebuild_tree(new_widget)
                 return default
             # set attribute value
@@ -199,8 +209,8 @@ class DropTarget(wx.DropTarget):
         data = self.data_objects[fmt].GetData()  # the data as string
         self.fmt = None
         if wx.Platform=="__WXMAC__":
-            # delay action, as otherwise there will be a segmentation fault; 50ms seems to be enough
-            wx.CallLater(50, self._OnData, _current_drag_source, src_widget, dst_widget, data, copy)
+            # delay action, as otherwise there will be a segmentation fault; 50ms were too short sometimes
+            wx.CallLater(100, self._OnData, _current_drag_source, src_widget, dst_widget, data, copy)
         else:
             wx.CallAfter(self._OnData, _current_drag_source, src_widget, dst_widget, data, copy)
 
@@ -227,6 +237,8 @@ def get_data_object(widget):
         do = wx.CustomDataObject(menubar_data_format)
     elif widget.WX_CLASS=="wxToolBar":
         do = wx.CustomDataObject(toolbar_data_format)
+    elif widget.WX_CLASS=="wxStatusBar":
+        do = wx.CustomDataObject(statusbar_data_format)
     elif widget.IS_TOPLEVEL:
         do = wx.CustomDataObject(window_data_format)
     else:
@@ -299,7 +311,6 @@ def cut(widget):
         return False
 
 
-#def paste(parent, sizer, pos, clipboard_data=None):
 def paste(widget):
     """Copies a widget (and all its children) from the clipboard to the given
     destination (parent, sizer and position inside the sizer). Returns True on success."""
@@ -311,7 +322,7 @@ def paste(widget):
     try:
         data_object = None
         for fmt in [widget_data_format, sizer_data_format, window_data_format,
-                    menubar_data_format, toolbar_data_format]:
+                    menubar_data_format, toolbar_data_format, statusbar_data_format]:
             if wx.TheClipboard.IsSupported(fmt):
                 data_object = wx.CustomDataObject(fmt)
                 break
@@ -334,7 +345,7 @@ def paste(widget):
         misc.error_message("Paste failed")
 
 
-def _paste(parent, pos, clipboard_data):
+def _paste(parent, index, clipboard_data):
     "parse XML and insert widget"
     option, span, flag, border, xml_unicode = clipboard2widget( clipboard_data )
     if not xml_unicode: return False
@@ -343,7 +354,7 @@ def _paste(parent, pos, clipboard_data):
         wx.BeginBusyCursor()
         # widget representation is still unicode, but parser need UTF8
         xml_utf8 = xml_unicode.encode('utf8')
-        parser = xml_parse.ClipboardXmlWidgetBuilder(parent, pos, option, span, flag, border)
+        parser = xml_parse.ClipboardXmlWidgetBuilder(parent, index, option, span, flag, border)
         with parent and parent.frozen() or misc.dummy_contextmanager():
             parser.parse_string(xml_utf8)
             if parent and hasattr(parent, "on_child_pasted"):

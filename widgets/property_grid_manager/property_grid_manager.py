@@ -21,12 +21,12 @@ class EditPropertyGridManager(ManagedBase, EditStylesMixin):
     PROPERTIES = ManagedBase.PROPERTIES + _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
     recreate_on_style_change = True
 
-    def __init__(self, name, parent, pos):
-        ManagedBase.__init__(self, name, 'wxPropertyGridManager', parent, pos)
+    def __init__(self, name, parent, index):
+        ManagedBase.__init__(self, name, parent, index)
         EditStylesMixin.__init__(self)
 
     def create_widget(self):
-        self.widget = PropertyGridManager(self.parent_window.widget, self.id, (200,200), style=self.style)
+        self.widget = PropertyGridManager(self.parent_window.widget, wx.ID_ANY, (200,200), style=self.style)
 
         # property grid does handle left and right mouse clicks and emits these events:
         self.widget.Bind(EVT_PG_SELECTED, self.on_set_focus)
@@ -53,7 +53,7 @@ class EditPropertyGridManager(ManagedBase, EditStylesMixin):
         pg.Append( wxpg.IntProperty("Int",value=123) )
         pg.Append( wxpg.FloatProperty("Float",value=123.4) )
         pg.Append( wxpg.BoolProperty("Bool",value=True) )
-        boolprop = pg.Append( wxpg.BoolProperty("Bool_with_Checkbox",value=True) )
+        pg.Append( wxpg.BoolProperty("Bool_with_Checkbox",value=True) )
         pg.SetPropertyAttribute( "Bool_with_Checkbox", "UseCheckbox", True)
         pg.Append( wxpg.PropertyCategory("2 - More Properties") )
         pg.Append( wxpg.LongStringProperty("LongString", value="This is a\nmulti-line string\nwith\ttabs\nmixed\tin."))
@@ -89,16 +89,16 @@ class EditPropertyGridManager(ManagedBase, EditStylesMixin):
     def get_property_handler(self, name):
         return ManagedBase.get_property_handler(self, name)
 
-    def properties_changed(self, modified=None):
-        EditStylesMixin.properties_changed(self, modified)
-        ManagedBase.properties_changed(self, modified)
+    def _properties_changed(self, modified, actions):
+        EditStylesMixin._properties_changed(self, modified, actions)
+        ManagedBase._properties_changed(self, modified, actions)
 
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for EditPropertyGridManager objects"
     name = parent.toplevel_parent.get_next_contained_name('property_grid_%d')
     with parent.frozen():
-        editor = EditPropertyGridManager(name, parent, pos)
+        editor = EditPropertyGridManager(name, parent, index)
         editor.properties["style"].set_to_default()
         # A grid should be wx.EXPANDed and 'option' should be 1, or you can't see it.
         editor.properties["proportion"].set(1)
@@ -107,14 +107,9 @@ def builder(parent, pos):
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory to build EditPropertyGridManager objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        label = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditPropertyGridManager( label, parent, pos )
+    return EditPropertyGridManager( name, parent, index )
 
 
 def initialize():
@@ -123,5 +118,5 @@ def initialize():
     common.widgets['EditPropertyGridManager'] = builder
     common.widgets_from_xml['EditPropertyGridManager'] = xml_builder
 
-    return common.make_object_button('EditPropertyGridManager', 'grid.xpm')
+    return common.make_object_button('EditPropertyGridManager', 'grid.png')
 

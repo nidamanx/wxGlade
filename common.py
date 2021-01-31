@@ -25,7 +25,7 @@ import config, compat, plugins, misc
 
 
 widget_classes = {}   # EditWidget class name -> EditWidget class
-widgets = {}          # all widgets: EditWidget class name -> factory(parent, pos)
+widgets = {}          # all widgets: EditWidget class name -> factory(parent, index)
 widgets_from_xml = {} # Factory functions to build objects from a XML file
 
 class_names = {} # maps the name of the classes used by wxGlade to the correspondent classes of wxWindows
@@ -35,6 +35,7 @@ main = None            # main window
 palette = None         # the panel which contains the various buttons to add the different widgets
 property_panel = None  # panel for editing the current widgets properties
 app_tree = None        # widget hierarchy of the application; root is application itself; a tree.WidgetTree instance
+shell = None           # will be created only when selecting from the help menu
 root = None
 
 # these will be set when clicking an item on the palette window:
@@ -42,8 +43,6 @@ adding_widget = False # If True, the user is adding a widget to some sizer
 adding_sizer = False  # "Needed to add toplevel sizers"
 widget_to_add = None  # widget class name that is being added
 adding_window = None  # the tree or the design window; used for centering dialogs
-
-design_windows = []
 
 pin_design_window = False
 
@@ -74,6 +73,10 @@ def init_codegen():
     all_widgets = load_widgets()
     sizer_buttons = load_sizers()
 
+    # initialize preview code generator
+    preview_codegen = code_writers["preview"] = code_writers["python"].copy()
+    preview_codegen.for_version = compat.version
+
     # merge sizer buttons
     for section in sizer_buttons:
         if section not in all_widgets:
@@ -86,7 +89,8 @@ def init_codegen():
 
 def load_code_writers():
     "Fills the common.code_writers dictionary: to do so, loads the modules found in the 'codegen/' subdir"
-    logging.info('Load code generators:')
+    if config.use_gui:
+        logging.info('Load code generators:')
     codegen_path = os.path.join(config.wxglade_path, 'codegen')
     sys.path.insert(0, codegen_path)
     for module in os.listdir(codegen_path):
@@ -126,7 +130,8 @@ def load_config():
 def load_sizers():
     """Load and initialise the sizer support modules into ordered dict instance.
     See edit_sizers.edit_sizers.init_all."""
-    logging.info('Load sizer generators:')
+    if config.use_gui:
+        logging.info('Load sizer generators:')
     for lang in code_writers.keys():
         module_name = 'edit_sizers.%s_sizers_codegen' % code_writers[lang].lang_prefix
         try:
@@ -239,6 +244,7 @@ def make_object_button(widget, icon_path, toplevel=False, tip=None):
     if not os.path.isabs(icon_path):
         icon_path = os.path.join(config.icons_path, icon_path)
     bmp = misc.get_xpm_bitmap(icon_path)
+    label = widget.replace('Edit', '')
     if compat.version < (3,0):
         # old wx version: use BitmapButton
         tmp = wx.BitmapButton(palette, -1, bmp, size=(31,31))
@@ -251,21 +257,21 @@ def make_object_button(widget, icon_path, toplevel=False, tip=None):
         if not toplevel:
             if not config.preferences.show_palette_labels:
                 # icons only -> set size
-                tmp = wx.ToggleButton(palette, -1, size=(31,31))
+                tmp = wx.ToggleButton(palette, -1, size=(31,31), name=label)
             else:
-                tmp = wx.ToggleButton(palette, -1, widget.replace('Edit', '') )
+                tmp = wx.ToggleButton(palette, -1, label, name=label )
             tmp.Bind(wx.EVT_TOGGLEBUTTON, add_object)
         else:
             if not config.preferences.show_palette_labels:
-                tmp = wx.Button(palette, -1, size=(31,31))
+                tmp = wx.Button(palette, -1, size=(31,31), name=label)
             else:
-                tmp = wx.Button(palette, -1, widget.replace('Edit', '') ) #, size=(31,31))
+                tmp = wx.Button(palette, -1, label, name=label )
             tmp.Bind(wx.EVT_BUTTON, add_toplevel_object)
         if config.preferences.show_palette_icons:
             tmp.SetBitmap( bmp )
     refs[tmp.GetId()] = widget
     if not tip:
-        tip = _('Add a %s') % widget.replace(_('Edit'), '')
+        tip = _('Add a %s') % label
     tmp.SetToolTip(wx.ToolTip(tip))
 
     WidgetTree.images[widget] = icon_path
@@ -363,6 +369,13 @@ def save_file(filename, content, which='wxg'):
 
     outfile = None
     try:
+        if which=="codegen":
+            if os.path.isfile(filename):
+                with open(filename, 'rb') as infile:
+                    win_line_ending = infile.readline().endswith(b"\r\n")
+            else:
+                win_line_ending = sys.platform.startswith("win")
+
         if need_backup:
             backup_name = filename + config.preferences.backup_suffix
             if os.path.isfile(backup_name):
@@ -377,7 +390,7 @@ def save_file(filename, content, which='wxg'):
 
         outfile = open(filename, 'wb')
         for line in content:
-            if sys.platform.startswith("win"):
+            if which=="codegen" and win_line_ending:
                 line = line.replace(b"\n", b"\r\n")
             outfile.write(line)
         outfile.close()
@@ -760,6 +773,7 @@ class Preferences(ConfigParser.ConfigParser):
         'open_save_path': '',
         'codegen_path': '',
         'use_dialog_units': False,
+        'allow_custom_widgets':False,
         'number_history': 12,
         'show_progress': True,
         'wxg_backup': True,
@@ -774,6 +788,7 @@ class Preferences(ConfigParser.ConfigParser):
         'show_palette_labels': False,
         'show_gridproperty_editors': False,
         'use_checkboxes_workaround': False,
+        'no_checkbox_label_colours':False,
         'allow_duplicate_names': False,
         'autosave': True,
         'autosave_delay': 120,  # in seconds
@@ -870,7 +885,7 @@ def style_attrs_to_sets(styles):
 
     returns: Style dictionary with modified attributes"""
     for style_name in styles.keys():
-        for attr in ['combination', 'exclude', 'include', 'require', ]:
+        for attr in ['combination', 'exclude', 'include', 'require', 'disabled']:
             try:
                 styles[style_name][attr] = set(styles[style_name][attr].split('|'))
             except (AttributeError, KeyError):

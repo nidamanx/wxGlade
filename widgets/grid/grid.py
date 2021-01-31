@@ -28,7 +28,7 @@ class GridColsProperty(np.GridProperty):
                 inner_xml += common.format_xml_tag(u'column', label, tabs+1, size=size)
             output.extend( common.format_xml_tag(u'columns', inner_xml, tabs, is_xml=True) )
 
-    def _get_label(self, col):
+    def _get_default_label(self, col):
         s = []
         while True:
             s.append(chr(ord('A') + col%26))
@@ -39,27 +39,14 @@ class GridColsProperty(np.GridProperty):
 
     def _check_label(self, label, i):
         "return True if it's not the default value"
-        return label != self._get_label(i)
+        return label != self._get_default_label(i)
 
-    def add_row(self, event):
-        np.GridProperty.add_row(self, event)
-        rows = self.grid.NumberRows
-        label = self._get_label(rows-1)
-        self.grid.SetCellValue(rows-1, 0, label)
-        # take the default column width from the previous row
-        col_width = -1 if rows==1 else int(self.grid.GetCellValue(rows-2, 1))
-        self.grid.SetCellValue(rows-1, 1, str(col_width))
-        self.editing_values[-1] = [label, col_width]
-
-    def insert_row(self, event):
-        np.GridProperty.insert_row(self, event)
-        label = self._get_label(self.cur_row)
-        self.grid.SetCellValue(self.cur_row, 0, label)
-        # take the default column width from the previous row
-        col_width = -1 if self.cur_row<1 else int(self.grid.GetCellValue(self.cur_row-1, 1))
-        self.grid.SetCellValue(self.cur_row, 1, str(col_width))
-        self.editing_values[self.cur_row] = [label, col_width]
-
+    def _get_default_row(self, row):
+        label = self._get_default_label(row)
+        values = self._ensure_editing_copy()
+        # by default, take width from previous column
+        col_width = values and values[row-1][1] or -1
+        return [label, col_width]
 
 
 class ColsHandler(BaseXmlBuilderTagHandler):
@@ -77,8 +64,7 @@ class ColsHandler(BaseXmlBuilderTagHandler):
 
     def end_elem(self, name):
         if name == 'columns':
-            self.parent.properties['columns'].set(self.columns)
-            self.parent.properties_changed(["columns"])
+            self.parent.properties['columns'].load(self.columns)
             return True
         elif name == 'column':
             char_data = self.get_char_data()
@@ -87,16 +73,16 @@ class ColsHandler(BaseXmlBuilderTagHandler):
 
 
 class GridRowsProperty(GridColsProperty):
-    def _get_label(self, row):
-        return str(row)
+    def _get_default_label(self, row):
+        return str(row+1)
 
     def _check_label(self, label, i):
         "return True if it's not the default value"
-        return label != self._get_label(i)
+        return label != self._get_default_label(i)
 
     def load(self, value, activate=None, deactivate=None, notify=False):
         if isinstance(value, compat.unicode):
-            value =  [[str(n),-1] for n in range(int(value))]
+            value =  [[self._get_default_label(row),-1] for row in range(int(value))]
         np.GridProperty.load(self, value, activate, deactivate, notify)
 
     def write(self, output, tabs):
@@ -104,7 +90,7 @@ class GridRowsProperty(GridColsProperty):
         inner_xml = []
         rows = self.get()
         for i, (label, size) in enumerate(rows):
-            if size!=-1 or label!=str(i):
+            if size!=-1 or self._check_label(label, i):
                 is_default=False
             inner_xml += common.format_xml_tag(u'row', label, tabs+1, size=size)
         if not is_default:
@@ -114,24 +100,12 @@ class GridRowsProperty(GridColsProperty):
             # just write the number of rows
             output.extend( common.format_xml_tag(u'rows_number', str(len(rows)), tabs) )
 
-    def add_row(self, event):
-        np.GridProperty.add_row(self, event)
-        rows = self.grid.NumberRows
-        label = self._get_label(rows-1)
-        self.grid.SetCellValue(rows-1, 0, label)
-        # take the default row width from the previous row
-        col_width = -1 if rows==1 else int(self.grid.GetCellValue(rows-2, 1))
-        self.grid.SetCellValue(rows-1, 1, str(col_width))
-        self.editing_values[-1] = [label, col_width]
-
-    def insert_row(self, event):
-        np.GridProperty.insert_row(self, event)
-        label = self._get_label(self.cur_row)
-        self.grid.SetCellValue(self.cur_row, 0, label)
-        # take the default row width from the previous row
-        col_width = -1 if self.cur_row<1 else int(self.grid.GetCellValue(self.cur_row-1, 1))
-        self.grid.SetCellValue(self.cur_row, 1, str(col_width))
-        self.editing_values[self.cur_row] = [label, col_width]
+    def _get_default_row(self, row):
+        label = self._get_default_label(row)
+        values = self._ensure_editing_copy()
+        # by default, take width from previous row
+        col_width = values and values[row-1][1] or -1
+        return [label, col_width]
 
 
 
@@ -150,8 +124,7 @@ class RowsHandler(BaseXmlBuilderTagHandler):
 
     def end_elem(self, name):
         if name == 'rows':
-            self.parent.properties['rows'].set(self.rows)
-            self.parent.properties_changed(["rows"])
+            self.parent.properties['rows'].load(self.rows, notify=True)
             return True
         elif name == 'row':
             char_data = self.get_char_data()
@@ -174,15 +147,15 @@ class EditGrid(ManagedBase):
     #_SELECTION_MODES = { 'wxGrid.wxGridSelectCells':0, 'wxGrid.wxGridSelectRows':1, 'wxGrid.wxGridSelectColumns':2 }
     _SELECTION_MODES = ('wxGrid.wxGridSelectCells', 'wxGrid.wxGridSelectRows', 'wxGrid.wxGridSelectColumns')
 
-    def __init__(self, name, parent, pos):
+    def __init__(self, name, parent, index):
         "Class to handle wxGrid objects"
-        ManagedBase.__init__(self, name, 'wxGrid', parent, pos)
+        ManagedBase.__init__(self, name, parent, index)
 
         # instance properties
         self.create_grid = np.CheckBoxProperty(True)
         columns = [['A', -1], ['B', -1], ['C', -1]]
         self.columns = GridColsProperty([])
-        rows =  [[str(n),-1] for n in range(10)]
+        rows =  [[str(n+1),-1] for n in range(10)]
         self.rows = GridRowsProperty( rows )
         self.properties["rows_number"] = self.properties["rows"]  # backward compatibility
         #self.rows_number        = np.SpinProperty(10, immediate=True)
@@ -202,7 +175,7 @@ class EditGrid(ManagedBase):
                                                columns=3)
 
     def create_widget(self):
-        self.widget = Grid(self.parent_window.widget, self.id, (200, 200))
+        self.widget = Grid(self.parent_window.widget, wx.ID_ANY, (200, 200))
         #self.widget.CreateGrid(self.rows_number, len(self.columns))
         self.widget.CreateGrid(len(self.rows), len(self.columns))
 
@@ -301,11 +274,10 @@ class EditGrid(ManagedBase):
                     self.widget.SetRowSize(i, size)
                 self.widget.SetRowLabelValue(i, label.replace('\\n', '\n'))
 
-        self.widget.ForceRefresh()
-
-    def properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         self._update_widget_properties(modified)
-        ManagedBase.properties_changed(self, modified)
+        if modified: actions.add("refresh")
+        ManagedBase._properties_changed(self, modified, actions)
 
     def get_property_handler(self, name):
         if name == 'columns': return ColsHandler(self)
@@ -314,11 +286,11 @@ class EditGrid(ManagedBase):
 
 
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for EditGrid objects"
     name = parent.toplevel_parent.get_next_contained_name('grid_%d')
     with parent.frozen():
-        editor = EditGrid(name, parent, pos)
+        editor = EditGrid(name, parent, index)
         # A grid should be wx.EXPANDed and 'option' should be 1, or you can't see it.
         editor.properties["proportion"].set(1)
         editor.properties["flag"].set("wxEXPAND")
@@ -326,14 +298,9 @@ def builder(parent, pos):
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory to build EditGrid objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        label = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditGrid(label, parent, pos)
+    return EditGrid(name, parent, index)
 
 
 def initialize():
@@ -342,5 +309,5 @@ def initialize():
     common.widgets['EditGrid'] = builder
     common.widgets_from_xml['EditGrid'] = xml_builder
 
-    return common.make_object_button('EditGrid', 'grid.xpm')
+    return common.make_object_button('EditGrid', 'grid.png')
 

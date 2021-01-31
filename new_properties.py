@@ -51,6 +51,8 @@ def flush_current_property():
     if not current_property or not current_property.editing: return
     current_property.flush()
 
+misc.flush_functions.append(flush_current_property)
+
 
 class Property(object):
     "Base class for property editors"
@@ -63,10 +65,11 @@ class Property(object):
     GROW = False # if this is True, no spacer is added after the control, so it may grow down to the lower edge
     HAS_DATA = True
     min_version = None  # can be overwritten in instances; currently only used by BitmapProperty
+    _error = _warning = None  # used by TextProperty and derived classes
+
     def __init__(self, value, default_value=_DefaultArgument, name=None):#, write_always=False):
-        self._logger = logging.getLogger(self.__class__.__name__)
         self.value = value
-        self.previous_value = None  # only set during call of self.owner.properties_modified
+        self.previous_value = None  # only set during call of self.owner.properties_changed
         # when the property is assigned to an instance property, these will be set:
         self.owner = None
         self.name = name
@@ -77,10 +80,12 @@ class Property(object):
         self.default_value = default_value
         self.controls = None
         self.editing = False
+
     def set_owner(self, owner, attributename=None):
         self.owner = owner
         self.attributename = attributename
         if self.name is None: self.name = attributename
+
     ####################################################################################################################
     # the interface from owner and application
     def get(self):
@@ -252,7 +257,7 @@ class Property(object):
     def update_display(self, start_editing=False):
         # when the value has changed
         # if start_editing: self.editing = True
-        # if not self.editing: return
+        # if not self.editing or not self...: return
         pass
 
     def activate_controls(self):
@@ -266,10 +271,10 @@ class Property(object):
         for controlname in self.CONTROLNAMES:
             if controlname=="enabler": continue
             control = getattr(self, controlname, None)
-            if control is None: continue
+            if not control: continue
             if isinstance(control, (tuple,list)):
                 for c in control:
-                    if c is not None: c.Enable(active)
+                    if c: c.Enable(active)
             else:
                 control.Enable(active)
 
@@ -286,10 +291,12 @@ class Property(object):
         return False
 
     # editor helpers
-    def _get_label(self, label, panel):
+    def _get_label(self, label, panel, name=None):
         width, height = panel.GetTextExtent(label)
         width = max(width, config.label_width)
         if wx.Platform == '__WXMSW__':
+            if name is not None:
+                return wx.StaticText( panel, -1, label, size=(width,height), name=name )
             return wx.StaticText( panel, -1, label, size=(width,height) )
         return wx.lib.stattext.GenStaticText( panel, -1, label, size=(width,height) )
 
@@ -301,12 +308,16 @@ class Property(object):
 
     def flush(self):
         pass
+    
+    def set_focus(self):
+        pass
 
     ####################################################################################################################
     # helpers
     def _mangle(self, label):
         "Returns a mangled version of label, suitable for displaying the name of a property"
         return misc.wxstr(misc.capitalize(label).replace('_', ' '))
+
     def _find_label(self):
         "check self.LABEL; then go through base classes and check the _PROPERTY_LABELS dictionaries"
         if self.LABEL: return self.LABEL
@@ -318,23 +329,26 @@ class Property(object):
             if self.name in cls._PROPERTY_LABELS:
                 return cls._PROPERTY_LABELS[self.name]
         return self._mangle(self.name)
+
     def _find_tooltip(self):
         "go through base classes and check the _PROPERTY_HELP dictionaries"
         if self.TOOLTIP: return self.TOOLTIP
-        import inspect
+        ret = []
+        if self._error:   ret.extend( [self._error, ""] )
+        if self._warning: ret.extend( [self._warning, ""] )
 
+        import inspect
         classes = inspect.getmro(self.owner.__class__)
-        help = None
         for cls in classes:
             if hasattr(cls, "_PROPERTY_HELP") and self.name in cls._PROPERTY_HELP:
-                help = cls._PROPERTY_HELP[self.name]
+                ret.append( cls._PROPERTY_HELP[self.name] )
                 break
         if self.min_version:
             min_version_s = ".".join( (str(v) for v in self.min_version) )
             min_version_s = "This property is only supported on wx %s or later."%min_version_s
-            if help:
-                help = "%s\n\n%s"%(help, min_version_s)
-        return help
+            ret.extend( ["", min_version_s] )
+        return "\n".join(ret) or None
+
     def _set_tooltip(self, *controls):
         tooltip = self._find_tooltip()
         if not tooltip: return
@@ -425,16 +439,9 @@ class SpinProperty(Property):
         self.spin.Bind(wx.EVT_KILL_FOCUS, self.on_kill_focus) # by default, the value is only set when the focus is lost
         self.spin.Bind(wx.EVT_SET_FOCUS, self.on_focus)
         if wx.Platform == '__WXMAC__' or self.immediate:
-            self.spin.Bind(wx.EVT_SPINCTRL, self.on_spin)
-            self.spin.Bind(wx.EVT_TEXT_ENTER, self.on_spin)   # we want the enter key (see style above)
+            self.spin.Bind(wx.EVT_SPINCTRL, self._on_spin)
+        self.spin.Bind(wx.EVT_TEXT_ENTER, self._on_enter)   # we want the enter key (see style above)
         self.editing = True
-
-    def _create_spin_ctrl(self, panel):
-        style = wx.TE_PROCESS_ENTER | wx.SP_ARROW_KEYS
-        self.spin = wx.SpinCtrl( panel, -1, style=style, min=self.val_range[0], max=self.val_range[1] )
-        val = self.value
-        if not val: self.spin.SetValue(1)  # needed for GTK to display a '0'
-        self.spin.SetValue(val)
 
     def on_kill_focus(self, event=None):
         if event is not None: event.Skip()
@@ -448,14 +455,25 @@ class SpinProperty(Property):
 
     def update_display(self, start_editing=False):
         if start_editing: self.editing = True
-        if not self.editing: return
+        if not self.editing or not self.spin: return
         self.spin.SetValue(self.value)
 
-    def on_spin(self, event):
+    def _on_spin(self, event):
         event.Skip()
         set_current_property(self)
         if self.spin:
             self._check_for_user_modification(self.spin.GetValue())
+
+    def _on_enter(self, event):
+        # in an EVT_TEXT_ENTER handler self.spin.GetValue() will return the old value on macOS
+        try:
+            # on macOS, invalid strings may be entered
+            value = self._set_converter( event.GetString() )
+        except:
+            self.spin.SetValue(self.value)
+            wx.Bell()
+            return
+        self._check_for_user_modification( value )
 
     def set_range(self, min_v, max_v):
         new_range = (min_v, max_v)
@@ -537,16 +555,16 @@ class LayoutProportionProperty(SpinProperty):
         SpinProperty.create_editor(self, panel, sizer)
 
 
-class LayoutPosProperty(SpinProperty):
-    readonly = True
-    TOOLTIP = "Position of item within sizer\nCan't be edited; use Cut & Paste or Drag & Drop to reposition an item."
+#class LayoutPosProperty(SpinProperty):
+    #readonly = True
+    #TOOLTIP = "Position of item within sizer\nCan't be edited; use Cut & Paste or Drag & Drop to reposition an item."
 
-    def __init__(self, value):
-        SpinProperty.__init__(self, value, val_range=(0,1000), immediate=False, default_value=_DefaultArgument, name="pos")
+    #def __init__(self, value):
+        #SpinProperty.__init__(self, value, val_range=(0,1000), immediate=False, default_value=_DefaultArgument, name="pos")
 
-    def write(self, *args, **kwds):
-        # maybe, for GridBagSizers row/col should be written
-        pass
+    #def write(self, *args, **kwds):
+        ## maybe, for GridBagSizers row/col should be written
+        #pass
 
 
 class LayoutSpanProperty(Property):
@@ -576,7 +594,7 @@ class LayoutSpanProperty(Property):
 
     def create_editor(self, panel, sizer):
         if not _is_gridbag(self.owner.parent): return
-        max_rows, max_cols = self.owner.parent.check_span_range(self.owner.pos, *self.value)
+        max_rows, max_cols = self.owner.parent.check_span_range(self.owner.index, *self.value)
 
         hsizer = wx.BoxSizer(wx.HORIZONTAL)
         # label
@@ -597,9 +615,9 @@ class LayoutSpanProperty(Property):
         self.colspin.SetSelection(-1, -1)
 
         # layout of the controls / sizers; when adding the spins, set min size as well
-        hsizer.Add(wx.StaticText(panel, -1, _("Rows:")), 1, wx.LEFT | wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL, 3)
+        hsizer.Add(wx.StaticText(panel, -1, _("Rows:")), 1, wx.LEFT | wx.ALIGN_CENTER_VERTICAL, 3)
         si = hsizer.Add(self.rowspin, 5, wx.ALL | wx.ALIGN_CENTER, 3).SetMinSize( (30,-1) )
-        hsizer.Add(wx.StaticText(panel, -1, _("Cols:")), 1, wx.LEFT | wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL, 3)
+        hsizer.Add(wx.StaticText(panel, -1, _("Cols:")), 1, wx.LEFT | wx.ALIGN_CENTER_VERTICAL, 3)
         hsizer.Add(self.colspin, 5, wx.ALL | wx.ALIGN_CENTER, 3).SetMinSize( (30,-1) )
         sizer.Add(hsizer, 0, wx.EXPAND)
 
@@ -627,7 +645,7 @@ class LayoutSpanProperty(Property):
 
     def update_display(self, start_editing=False):
         if start_editing: self.editing = True
-        if not self.editing: return
+        if not self.editing or not self.rowspin or not self.colspin: return
         self.rowspin.SetValue(self.value[0])
         self.colspin.SetValue(self.value[1])
 
@@ -637,7 +655,7 @@ class LayoutSpanProperty(Property):
         if self.rowspin and self.colspin:
             self._check_for_user_modification( (self.rowspin.GetValue(),self.colspin.GetValue() ) )
             # update ranges
-            max_rows, max_cols = self.owner.parent.check_span_range(self.owner.pos, *self.value)
+            max_rows, max_cols = self.owner.parent.check_span_range(self.owner.index, *self.value)
             self.rowspin.SetRange(1,max_rows)
             self.colspin.SetRange(1,max_cols)
             self.rowspin.Enable(max_rows!=1)
@@ -661,10 +679,11 @@ class CheckBoxProperty(Property):
         self.checkbox.SetValue( bool(self.value) )
 
     def create_editor(self, panel, sizer):
-        self.checkbox = wx.CheckBox(panel, -1, '')
-        self._display_value()
         label_text = self._find_label()
-        self.label_ctrl = label = self._get_label(label_text, panel)
+        self.checkbox = wx.CheckBox(panel, -1, '', name=label_text)
+        self._display_value()
+        if self.blocked: self.checkbox.Disable()
+        self.label_ctrl = label = self._get_label(label_text, panel, name=label_text)
 
         if config.preferences.use_checkboxes_workaround:
             size = self.checkbox.GetSize()
@@ -685,7 +704,7 @@ class CheckBoxProperty(Property):
 
     def update_display(self, start_editing=False):
         if start_editing: self.editing = True
-        if not self.editing: return
+        if not self.editing or not self.checkbox: return
         self._display_value()
 
     def on_change_val(self, event):
@@ -746,8 +765,9 @@ class RadioProperty(Property):
 
     def update_display(self, start_editing=False):
         if start_editing: self.editing = True
-        if not self.editing: return
+        if not self.editing or not self.options: return
         self.options.SetSelection( self.values.index(self.value) )
+        if self.blocked: self.options.Disable()
 
     def on_radio(self, event):
         event.Skip()
@@ -756,7 +776,7 @@ class RadioProperty(Property):
         self._check_for_user_modification(new_value)
 
     def enable_item(self, index, enable=True):
-        if not self.editing: return
+        if not self.editing or not self.options: return
         self.options.EnableItem(index, enable)
 
 
@@ -770,7 +790,7 @@ class IntRadioProperty(RadioProperty):
 class _CheckListProperty(Property):
     # common base class for Flags and WidgetStyleFlags; keeps self.value_set as a set of strings
     CONTROLNAMES = ["enabler", "_choices"]
-    EXCLUDES = None
+    EXCLUDES = EXCLUDES2 = None  # EXCLUDES2 will be set dynamically
 
     def __init__(self, value, default_value=_DefaultArgument, name=None, names=None, values=None):
         self._names = names
@@ -778,6 +798,12 @@ class _CheckListProperty(Property):
         self.value_set = self._decode_value(value)
         self.enabler = self._choices = None
         Property.__init__(self, None, default_value, name) # with value=None, as this is to be calculated on demand only
+        self._ignore_names = set()  # flag values to be ignored for DesignWindow
+        self._one_required = None
+
+    def set_owner(self, owner, attributename):
+        Property.set_owner(self, owner, attributename)
+        self._check_value()
 
     def _ensure_values(self):
         if self._names is None or self._values is None: raise ValueError("implementation error")
@@ -806,7 +832,7 @@ class _CheckListProperty(Property):
             if self.value_set: self._ensure_values()
             self.value = 0
             for i, name in enumerate(self._names):
-                if name in self.value_set:
+                if name in self.value_set and not name in self._ignore_names:
                     value = self._values[i]
                     if value is not None: self.value |= value
         return Property.get(self)
@@ -817,6 +843,7 @@ class _CheckListProperty(Property):
         if new_value_set!=self.value_set:
             self.value_set = new_value_set
         Property.set(self, None, activate, deactivate, notify)  # with None, as this is to be calculated on demand only
+        self._check_value()
 
     def add(self, value, activate=False, deactivate=False, notify=True):
         if value in self.value_set: return
@@ -887,6 +914,10 @@ class _CheckListProperty(Property):
         self.on_focus()
         self._change_value(value, checked)
 
+    def _check_value(self, added=None):
+        # e.g. used by ManagedFlags
+        pass
+
     def _change_value(self, value, checked):
         "user has clicked checkbox or History is setting"
         self.previous_value = set(self.value_set)
@@ -897,6 +928,8 @@ class _CheckListProperty(Property):
                 excludes = self.EXCLUDES.get(value, [])
             else:
                 excludes = self.style_defs[value].get("exclude",[])
+            self.value_set.difference_update( excludes )
+            excludes = self.style_defs[value].get("disable",[])
             self.value_set.difference_update( excludes )
         else:
             if value in self.value_set:
@@ -917,6 +950,8 @@ class _CheckListProperty(Property):
                 self.value_set.difference_update( combination )
                 self.value_set.add(name)
 
+        self._check_value(checked and value or None)  # e.g. used by ManagedFlags
+
         self.value = None  # to be calculated on demand
         self._notify()
         common.history.set_property_changed(self, value, checked)
@@ -929,7 +964,7 @@ class _CheckListProperty(Property):
         if not self.editing: return
         checked = self.get_list_value()
         for i,checkbox in enumerate(self._choices):
-            if checkbox is None: continue
+            if not checkbox: continue
             name = self._names[i]
             if checked[i] and not checkbox.GetValue():
                 checkbox.SetValue(True)
@@ -937,20 +972,41 @@ class _CheckListProperty(Property):
                 checkbox.SetValue(False)
             # display included flags in grey and excluded flags red
             if self.EXCLUDES:
+                # mutually exclusive, e.g. ALIGN_RIGHT if ALIGN_CENTER is set
+                # red / enabled / can be checked and will then deactivate the other one
                 excludes = self.EXCLUDES.get(name, [])
             else:
                 excludes = self.style_defs[name].get("exclude",[])
-            default_color = wx.BLACK if not "rename_to" in self.style_defs[name] else wx.Colour(130,130,130)
-            if checked[i] and not name in self.value_set:
-                checkbox.SetForegroundColour(wx.Colour(120,120,100))  # grey
-            elif self.value_set.intersection( excludes ):
-                checkbox.SetForegroundColour(wx.RED)
+            if self.EXCLUDES2:
+                # dynamically excluded, e.g. horizontal alignment flag in horizontal sizer
+                # grey / disabled / can not be checked
+                excludes2 = self.EXCLUDES2
             else:
-                supported_by = self.style_defs.get(name, {}).get("supported_by", None)
-                if supported_by:
-                    checkbox.SetForegroundColour(wx.BLUE)
+                # disable if any of the flags in 'disabled' is set
+                excludes2 = self.style_defs[name].get("disabled",None)
+                if excludes2 is not None and self.value_set.intersection( excludes2 ):
+                    excludes2 = [name]
+            if not config.preferences.no_checkbox_label_colours:
+                default_color = wx.NullColour if not "rename_to" in self.style_defs[name] else wx.Colour(130,130,130)
+                if checked[i] and not name in self.value_set:
+                    checkbox.SetForegroundColour(wx.Colour(120,120,100))  # grey
+                elif self.value_set.intersection( excludes ):
+                    checkbox.SetForegroundColour(wx.RED)
                 else:
-                    checkbox.SetForegroundColour(default_color)
+                    supported_by = self.style_defs.get(name, {}).get("supported_by", None)
+                    if supported_by:
+                        checkbox.SetForegroundColour(wx.BLUE)
+                    else:
+                        checkbox.SetForegroundColour(default_color)
+            if self._one_required and name in self._one_required and checked[i]:
+                wx.CallAfter( checkbox.Disable )
+            elif excludes2 and name in excludes2:
+                if not config.preferences.no_checkbox_label_colours: checkbox.SetForegroundColour(wx.RED)
+                checkbox.Disable()
+            elif excludes2 is not None:
+                checkbox.Enable()
+            elif self._one_required and name in self._one_required and not checked[i]:
+                checkbox.Enable()
             checkbox.Refresh()
 
     ####################################################################################################################
@@ -1038,13 +1094,13 @@ class ManagedFlags(_CheckListProperty):
     RENAMES =  {'wxALIGN_CENTRE':'wxALIGN_CENTER',
                 'wxALIGN_CENTRE_VERTICAL':'wxALIGN_CENTER_VERTICAL'}
 
-    COMBINATIONS = { "wxALL":set( 'wxLEFT|wxRIGHT|wxTOP|wxBOTTOM'.split("|") ),
-                     "wxALIGN_CENTER":set( 'wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL'.split("|") ) }
-    EXCLUDES = {'wxALIGN_RIGHT':            set(['wxALIGN_CENTER","wxALIGN_CENTER_HORIZONTAL']),
-                'wxALIGN_BOTTOM':           set(['wxALIGN_CENTER","wxALIGN_CENTER_VERTICAL']),
-                'wxALIGN_CENTER_HORIZONTAL':set(["wxALIGN_RIGHT"]),
-                'wxALIGN_CENTER_VERTICAL':  set(["wxALIGN_BOTTOM"]),
-                'wxALIGN_CENTER':           set(["wxALIGN_BOTTOM","wxALIGN_RIGHT"]) }
+    COMBINATIONS = { 'wxALL':set( 'wxLEFT|wxRIGHT|wxTOP|wxBOTTOM'.split('|') ),
+                     'wxALIGN_CENTER':set( 'wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL'.split('|') ) }
+    EXCLUDES = {'wxALIGN_RIGHT':            set(['wxALIGN_CENTER','wxALIGN_CENTER_HORIZONTAL']),
+                'wxALIGN_BOTTOM':           set(['wxALIGN_CENTER','wxALIGN_CENTER_VERTICAL']),
+                'wxALIGN_CENTER_HORIZONTAL':set(['wxALIGN_RIGHT']),
+                'wxALIGN_CENTER_VERTICAL':  set(['wxALIGN_BOTTOM']),
+                'wxALIGN_CENTER':           set(['wxALIGN_BOTTOM','wxALIGN_RIGHT']) }
 
     FLAG_NAMES  = sum( FLAG_DESCRIPTION.values(), [] )
     FLAG_VALUES = [getattr(wx, name[2:]) for name in FLAG_NAMES]
@@ -1053,6 +1109,17 @@ class ManagedFlags(_CheckListProperty):
         self.styles = self.FLAG_DESCRIPTION
         _CheckListProperty.__init__(self, value, default_value, name, self.FLAG_NAMES, self.FLAG_VALUES)
         self.style_defs = config.widget_config['generic_styles']
+
+    def _check_value(self, added=None):
+        # remove flags that are not applicable; set EXCLUDE2
+        if self.name != "flag" or not self.owner.parent.IS_SIZER: return
+        excludes, replace, msg = self.owner.parent._check_flags(self.value_set, added)
+        if replace:
+            for key, value in replace.items():
+                self.value_set.remove(key)
+                if value is not None: self.value_set.add(value)
+            self.value = None  # calculate value from value_set on demand
+        self.EXCLUDES2 = excludes
 
     def _decode_value(self, value):
         # handle obsolete and renamed flags
@@ -1119,7 +1186,7 @@ class WidgetStyleProperty(_CheckListProperty):
                 try:
                     style_def = self.style_defs[v]
                 except:
-                    self._logger.warning( _('Style "%s" not supported for widget "%s"')%(v, self.owner.WX_CLASS) )
+                    logging.warning( _('Style "%s" not supported for widget "%s"')%(v, self.owner.WX_CLASS) )
                     value.remove(v)
                     continue
                 if "exclude" in style_def:
@@ -1225,6 +1292,10 @@ class TextProperty(Property):
         self.fixed_height = fixed_height  # don't grow the edit field in vertical
         Property.__init__(self, value, default_value, name)
 
+    def toggle_active(self, active=None, refresh=True):
+        Property.toggle_active(self, active, refresh)
+        if self.text: self._set_colours(self.check_value(self.value))
+
     def _set_converter(self, value):
         # used by set()
         if self.STRIP or self.strip:
@@ -1309,7 +1380,7 @@ class TextProperty(Property):
                 self.enabler.Disable()
         elif self.deactivated is not None:
             self.text.Enable(not self.deactivated)
-            panel.Bind( wx.EVT_LEFT_DOWN, self._on_text_click )
+        panel.Bind( wx.EVT_LEFT_DOWN, self._on_text_click )
         # layout of the controls / sizers
         if self._HORIZONTAL_LAYOUT:
             #self.text.SetMaxSize( (-1,200) )
@@ -1341,13 +1412,13 @@ class TextProperty(Property):
         self._set_colours()
         self._set_tooltip(label, self.text, self.enabler, *self.additional_controls)
         self.editing = True
-        
+
         if hasattr(self, "_on_label_dblclick"):
             label.Bind(wx.EVT_LEFT_DCLICK, self._on_label_dblclick)
             label.SetForegroundColour(wx.BLUE)
 
     def _on_text_click(self, event):
-        if self.deactivated and not self.auto_activated and self.text:
+        if not self.blocked and self.deactivated and not self.auto_activated and self.text:
             text_rect = self.text.GetClientRect()
             text_rect.Offset(self.text.Position)
             if text_rect.Contains(event.Position):
@@ -1383,18 +1454,12 @@ class TextProperty(Property):
     def _on_text(self, event):
         if self.deactivated or self.blocked: return
         text = event.GetString()
-        if not self.validation_re:
-            if self.control_re.search(text):
-                # strip most ASCII control characters
-                self.text.SetValue(self.control_re.sub("", text))
-                wx.Bell()
-                return
-        elif self.check(text):
-            self.text.SetBackgroundColour( compat.wx_SystemSettings_GetColour(wx.SYS_COLOUR_WINDOW) )
-            self.text.Refresh()
-        else:
-            self.text.SetBackgroundColour(wx.RED)
-            self.text.Refresh()
+        if not self.validation_re and self.control_re.search(text):
+            # strip most ASCII control characters
+            self.text.SetValue(self.control_re.sub("", text))
+            wx.Bell()
+            return
+        self._set_colours( self.check_value(text) )
         event.Skip()
 
     def create_additional_controls(self, panel, sizer, hsizer):
@@ -1404,12 +1469,34 @@ class TextProperty(Property):
     def update_display(self, start_editing=False):
         # when the value has changed
         if start_editing: self.editing = True
-        if not self.editing: return
+        if not self.editing or not self.text: return
         self.text.SetValue(self._convert_to_text(self.value) or "")
         self._set_colours()
 
-    def _set_colours(self):
-        pass
+    def set_check_result(self, warning=None, error=None):
+        if warning==self._warning and error==self._error: return
+        self._warning = warning
+        self._error = error
+
+        if not self.text: return
+        compat.SetToolTip(self.text, self._find_tooltip())
+        self._set_colours()
+
+    def _set_colours(self, warning_error=None):
+        # set color to indicate errors and warnings
+        if not self.text: return
+        if warning_error:
+            warning, error = warning_error
+        else:
+            warning, error = self._warning, self._error
+        if error:
+            bgcolor = wx.RED
+        elif warning:
+            bgcolor = wx.Colour(255, 255, 0, 255)  # yellow
+        else:
+            bgcolor = wx.WHITE
+        self.text.SetBackgroundColour( bgcolor )
+        self.text.Refresh()
 
     def _convert_to_text(self, value):
         """convert from self.value to string that will be displayed/edited in TextCtrl
@@ -1432,6 +1519,13 @@ class TextProperty(Property):
     def on_kill_focus(self, event):
         event.Skip()
         self.flush()
+    
+    def set_focus(self):
+        if self.blocked: return
+        if self.deactivated is False:
+            if self.enabler: self.enabler.SetFocus()
+        else:
+            if self.text: self.text.SetFocus()
 
     def _check_for_user_modification(self, new_value=None, force=False, activate=False):
         if new_value is None:
@@ -1441,23 +1535,42 @@ class TextProperty(Property):
             self.text.SetValue( self._convert_to_text(self.value))
             return
         self.previous_value = self.value
-        return Property._check_for_user_modification(self, new_value, force, activate)
+        ret = Property._check_for_user_modification(self, new_value, force, activate)
+        self.check(self.value)  # a value can be valid, but e.g. a non-unique name to be visualized in color
+        return ret
 
     def _convert_from_text(self, text=None):
         "convert from TextCtrl input value to self.value; change in derived classes"
-        if text is None: value = self.text.GetValue()
+        if text is None: text = self.text.GetValue()
         return text
 
-    def check(self, value):
-        "checks whether the string value matches the validation regular expression"
-        if not self.validation_re: return True
-        return bool( self.validation_re.match(value) )
-    
+    def check_value(self, value):
+        "return (warning, error)"
+        if value is None:
+            return (None, "empty")
+        if not isinstance(value, compat.unicode): value = self._convert_to_text(value)
+        if self.validation_re and not self.validation_re.match(value):
+            return (None, "invalid")
+        warning, error = self._check(value)
+        return warning, error
+
+    def check(self, value=None):
+        if value is None: value = self.value
+        if isinstance(value, compat.unicode):
+            self.set_check_result( *self.check_value(value) )
+        else:
+            self.set_check_result()  # if it's not a text, it must be valid
+
+    def _check(self, value):
+        # called from check, if value matches validation_re
+        return None, None
+
     def flush(self):
         if self.text is None: return
         if self.text.IsBeingDeleted(): return
         if not compat.wxWindow_IsEnabled(self.text): return
         self._check_for_user_modification()
+
 
 
 class TextPropertyA(TextProperty):
@@ -1493,13 +1606,13 @@ class FloatPropertyA(TextPropertyA):
                 return None
         return str(float(value))
 
-    def check(self, value):
-        if not self.validation_re.match(value): return False
-        if self.val_range is None: return True
-        v = float(value)
-        if v<self.val_range[0] or v>self.val_range[1]:
-            return False
-        return True
+    def _check(self, value):
+        # called from check if the format was OK
+        if self.val_range is not None:
+            v = float(value)
+            if v<self.val_range[0] or v>self.val_range[1]:
+                return (None, "out of range")
+        return (None, None)
 
     def _set_converter(self, value):
         if isinstance(value, compat.unicode):
@@ -1519,41 +1632,48 @@ class FloatPropertyD(FloatPropertyA):
 class NameProperty(TextProperty):
     #validation_re  = re.compile(r'^[a-zA-Z_]+[\w-]*(\[\w*\])*$')  # Python 3 only, including non-ASCII characters
     validation_re  = re.compile(r'^[a-zA-Z_]+[a-zA-Z0-9_-]*$')  # Python 2 also; for lisp a hyphen - is allowed
+
     def _check_name_uniqueness(self, name):
         # check whether the name is unique
-        if config.preferences.allow_duplicate_names: return
+        if self.owner.IS_TOPLEVEL:
+            for child in self.owner.parent.children:
+                if child is self.owner: continue
+                if child.name==name: return False
+            return True
         if name == self.value: return True
         if name in self.owner.toplevel_parent.names:
             return False
         return True
 
-    def _on_text(self, event):
-        if self.deactivated or self.blocked: return
-        name = event.GetString()
-        match = self.validation_re.match(name)
-        if match:
-            if self._check_name_uniqueness(name):
-                self.text.SetBackgroundColour( compat.wx_SystemSettings_GetColour(wx.SYS_COLOUR_WINDOW) )
-            else:
-                self.text.SetBackgroundColour( wx.Colour(255, 255, 0, 255) )  # YELLOW
-        else:
-            self.text.SetBackgroundColour(wx.RED)
-        self.text.Refresh()
-        event.Skip()
+    # return (result, message) where result is [True, False, "warn"]
+    def _check(self, value):
+        # called from check if the format was OK
+        if value and "-" in value and common.root.language!="lisp":
+            return (None, "invalid")
+        if self._check_name_uniqueness(value):
+            return (None,None)
+        if self.owner.IS_TOPLEVEL:
+            return ("Name not unique", None)
+        return (None, "Name not unique")
 
     def _convert_from_text(self, value):
         "normalize string to e.g. '-1, -1'; return None if invalid"
         match = self.validation_re.match(value)
         #if not match: return self.value
         if not match: return None
-        if not self._check_name_uniqueness(value): return None
+        if value and "-" in value and common.root.language!="lisp": return None
+        if not self.owner.IS_TOPLEVEL and not self._check_name_uniqueness(value): return None
         return value
 
-    def check(self, value):
-        # check whether it's valid to set value
-        check = self._convert_from_text(value)
-        if check is None: return False
-        return True
+
+class InstanceClassPropertyD(TextProperty):
+    deactivated = True
+    validation_re = re.compile(r'^[a-zA-Z_]+[\w:.0-9-]*$')
+
+
+class BaseClassesPropertyD(TextProperty):
+    deactivated = True
+    validation_re = re.compile(r'^[a-zA-Z_]+[\w:.0-9-\,]*$')
 
 
 class ClassProperty(TextProperty):
@@ -1561,11 +1681,6 @@ class ClassProperty(TextProperty):
     _UNIQUENESS_MSG1 = "Name not unique; code will only be created for one window/widget."
     _UNIQUENESS_MSG2 = ("Name not unique; imported class may be overwritten, as\n"
                         "wxGlade is currently creating code like from '... import ...'.")
-
-    def create_text_ctrl(self, panel, value):
-        text = TextProperty.create_text_ctrl(self, panel, value)
-        self._check(value, text)  # do the check now, not only on changes; to indicated non-unique class names
-        return text
 
     def _check_class_uniqueness(self, klass):
         """Check whether the class name is unique, as otherwise the source code would be overwritten.
@@ -1577,9 +1692,9 @@ class ClassProperty(TextProperty):
             leaf = None
 
         # shortcut: check sibilings first
-        siblings = self.owner.parent.children
+        siblings = self.owner.parent.get_all_children()
         for node in siblings:
-            if node is self.owner: continue
+            if node is self.owner or not node.check_prop("class"): continue
             if node.klass==klass:
                 return self._UNIQUENESS_MSG1
             if leaf and "." in node.klass and leaf==node.klass.rsplit(".",1)[-1]:
@@ -1592,37 +1707,21 @@ class ClassProperty(TextProperty):
                 if c.children:
                     result = check(c.children)
                     if result: return result
-                if c is not self.owner:
-                    if c.klass==c.WX_CLASS: continue
-                    if c.klass==klass:
-                        return self._UNIQUENESS_MSG1
-                    if leaf and "." in c.klass and leaf==c.klass.rsplit(".",1)[-1]:
-                        return self._UNIQUENESS_MSG2
+                if c is self.owner or not c.check_prop("class"): continue
+                if c.klass==klass:
+                    return self._UNIQUENESS_MSG1
+                if leaf and "." in c.klass and leaf==c.klass.rsplit(".",1)[-1]:
+                    return self._UNIQUENESS_MSG2
             return None
         return check(common.root.children)
 
     def _check(self, klass, ctrl=None):
-        # called by _on_text and create_text_ctrl to validate and indicate
-        if not self.text and not ctrl: return
-        if ctrl is None: ctrl = self.text
-        if not self.validation_re.match(klass):
-            ctrl.SetBackgroundColour(wx.RED)
-            compat.SetToolTip(ctrl, "Name is not valid.")
-        else:
-            msg = self._check_class_uniqueness(klass)
-            if not msg:
-                ctrl.SetBackgroundColour( compat.wx_SystemSettings_GetColour(wx.SYS_COLOUR_WINDOW) )
-                compat.SetToolTip( ctrl, self._find_tooltip() )
-            else:
-                ctrl.SetBackgroundColour( wx.Colour(255, 255, 0, 255) )  # YELLOW
-                compat.SetToolTip(ctrl, msg)
-        ctrl.Refresh()
+        msg = self._check_class_uniqueness(klass)
+        return (msg, None)
 
-    def _on_text(self, event):
-        if self.deactivated or self.blocked: return
-        klass = event.GetString()
-        self._check(klass)
-        event.Skip()
+
+class ClassPropertyD(ClassProperty):
+    deactivated = True
 
 
 class IntPairPropertyD(TextPropertyD):
@@ -1752,8 +1851,8 @@ class ComboBoxProperty(TextProperty):
         TextProperty.__init__(self, value, False, strip, default_value, name)
 
     def create_text_ctrl(self, panel, value):
-        combo = wx.ComboBox( panel, -1, self.value, choices=self.choices, style=self._CB_STYLE )
-        combo.SetStringSelection(self.value)
+        combo = wx.ComboBox( panel, -1, value or "", choices=self.choices, style=self._CB_STYLE )
+        combo.SetStringSelection(value or "")
         combo.Bind(wx.EVT_COMBOBOX, self.on_combobox)
         combo.Bind(wx.EVT_KILL_FOCUS, self.on_kill_focus)
         combo.Bind(wx.EVT_SET_FOCUS, self.on_focus)
@@ -1766,7 +1865,7 @@ class ComboBoxProperty(TextProperty):
             self.choices[:] = choices
         if not self.value in self.choices:
             self.value = ""
-        if not self.editing: return
+        if not self.editing or not self.text: return
         # update choices, but keep current selection, if possible
         self.text.SetItems(self.choices)
         if self.value in self.choices:
@@ -1901,7 +2000,7 @@ class DialogProperty(TextProperty):
     def update_display(self, start_editing=False):
         TextProperty.update_display(self, start_editing)
         self._update_button()
-        
+    
     def has_control(self, control):
         if TextProperty.has_control(self, control): return True
         if self.button and control is self.button:  return True
@@ -1989,7 +2088,7 @@ class FileNamePropertyD(FileNameProperty):
 
 class BitmapProperty(FileNameProperty):
     def __init__(self, value="", name=None, min_version=None):
-        self._size = self._warning = self._error = None
+        self._size = None  # will be set when a bitmap is loaded
         style = wx.FD_OPEN | wx.FD_FILE_MUST_EXIST
         FileNameProperty.__init__(self, value, style, "", name)
         self.min_version = min_version
@@ -2001,30 +2100,9 @@ class BitmapProperty(FileNameProperty):
             self._size = bmp.Size
         if self.text: compat.SetToolTip(self.text, self._find_tooltip())
 
-    def set_check_result(self, warning=None, error=None):
-        self._warning = warning
-        self._error = error
-
-        if not self.text: return
-        compat.SetToolTip(self.text, self._find_tooltip())
-        self._set_colours()
-
-    def _set_colours(self):
-        # set color to indicate errors and warnings
-        bgcolor = wx.WHITE
-        if self._warning:
-            bgcolor = wx.Colour(255, 255, 0, 255)  # yellow
-        if self._error:
-            bgcolor = wx.RED
-        self.text.SetBackgroundColour( bgcolor )
-        self.text.Refresh()
-
     def _find_tooltip(self):
         ret = []
-        if self._error:   ret.append(self._error)
-        if self._warning: ret.append(self._warning)
         if self._size:
-            if ret: ret.append("")
             ret.append( "Size: %s\n"%self._size )
         t = FileNameProperty._find_tooltip(self)
         if t: ret.append( t )
@@ -2113,10 +2191,11 @@ class ColorProperty(DialogProperty):
             value = misc.color_to_string(value)
         return value
 
-    def get_color(self):
+    def get_color(self, color=None):
         # return a wx.Colour instance
-        if not self.is_active(): return self.default_value
-        color = self.get()
+        if color is None:
+            if not self.is_active(): return self.default_value
+            color = self.get()
         if color is None: return self.default_value
         if color=="wxNullColour": return wx.NullColour
         if color in self.str_to_colors:
@@ -2124,7 +2203,7 @@ class ColorProperty(DialogProperty):
             return compat.wx_SystemSettings_GetColour(self.str_to_colors[color])
         elif color.startswith("#"):
             return misc.string_to_color(color)
-        ret = wx.NamedColour(color)
+        ret = compat.wx_NamedColour(color)
         if ret.IsOk():
             return ret
         return None
@@ -2141,7 +2220,28 @@ class ColorProperty(DialogProperty):
         else:
             self.button.SetBackgroundColour(color)
 
+    def _convert_from_text(self, value):
+        # returns a string if valid, None otherwise
+        try:
+            if not self.get_color(value): return None
+            return value
+        except:
+            return None
+    
+    def _convert_to_text(self, value):
+        # just used when user entered an invalid value to reset to either None/"" or a string
+        if value is None: return ""
+        return value
 
+    def check_value(self, value):
+        "return (warning, error)"
+        try:
+            checked = self.get_color(value)
+        except:
+            checked = None
+        if not checked:  # get_color returned None or raised an exception
+            return (None, "invalid")
+        return (None,None)
 
 
 class ColorPropertyD(ColorProperty):
@@ -2149,17 +2249,17 @@ class ColorPropertyD(ColorProperty):
 
 class FontProperty(DialogProperty):
     # keep this in sync with wxGladeFontDialog
-    font_families_to = {'default': wx.DEFAULT,
-                        'decorative': wx.DECORATIVE, 'roman': wx.ROMAN,
-                        'swiss': wx.SWISS, 'script': wx.SCRIPT, 'modern': wx.MODERN }
+    font_families_to = {'default': wx.FONTFAMILY_DEFAULT,
+                        'decorative': wx.FONTFAMILY_DECORATIVE, 'roman': wx.FONTFAMILY_ROMAN,
+                        'swiss': wx.FONTFAMILY_SWISS, 'script': wx.FONTFAMILY_SCRIPT, 'modern': wx.FONTFAMILY_MODERN }
     font_families_from = misc._reverse_dict(font_families_to)
-    font_styles_to = {'normal': wx.NORMAL, 'slant': wx.SLANT, 'italic': wx.ITALIC }
+    font_styles_to = {'normal': wx.FONTSTYLE_NORMAL, 'slant': wx.FONTSTYLE_SLANT, 'italic': wx.FONTSTYLE_ITALIC }
     font_styles_from = misc._reverse_dict(font_styles_to)
-    font_weights_to = {'normal': wx.NORMAL, 'light': wx.LIGHT, 'bold': wx.BOLD }
+    font_weights_to = {'normal': wx.FONTWEIGHT_NORMAL, 'light': wx.FONTWEIGHT_LIGHT, 'bold': wx.FONTWEIGHT_BOLD }
     font_weights_from = misc._reverse_dict(font_weights_to)
 
-    font_families_to['teletype'] = wx.TELETYPE
-    font_families_from[wx.TELETYPE] = 'teletype'
+    font_families_to['teletype'] = wx.FONTFAMILY_TELETYPE
+    font_families_from[wx.FONTFAMILY_TELETYPE] = 'teletype'
 
     validation_re = re.compile(r" *\[(\d+), *'(default|teletype|decorative|roman|swiss|script|modern)', *"
                                r"'(normal|slant|italic)', *'(normal|light|bold)', *(0|1), *'([a-zA-Z _]*)'] *")
@@ -2177,10 +2277,10 @@ class FontProperty(DialogProperty):
         try:
             props = [common.encode_to_unicode(s) for s in self.value]
         except:
-            self._logger.exception(_('Internal Error'))
+            logging.exception(_('Internal Error'))
             return
         if len(props) < 6:
-            self._logger.error( _('error in the value of the property "%s"'), self.name )
+            logging.error( _('error in the value of the property "%s"'), self.name )
             return
         inner_xml =  common.format_xml_tag(u'size',       props[0], tabs+1)
         inner_xml += common.format_xml_tag(u'family',     props[1], tabs+1)
@@ -2272,6 +2372,7 @@ class GridProperty(Property):
         self.cur_row = self.cur_col = 0
         self.editing_values = None # before pressing Apply; stored here because the editor grid might be deleted
         self.grid = None
+        self._last_focus = None
         self._initialize_indices()
 
     def _get_default_row(self, index):
@@ -2283,6 +2384,13 @@ class GridProperty(Property):
         self._initialize_indices()
         self.editing_values = None
         self.update_display()
+
+    def insert(self, index, item):
+        assert not self.deactivated
+        value = self.get()
+        value.insert(index, item)
+        self.editing_values = None
+        self.set(value)
 
     def get(self):
         if self.deactivated:
@@ -2321,16 +2429,16 @@ class GridProperty(Property):
             add_btn = insert_btn = remove_btn = None
             if self.can_add:
                 add_btn = wx.Button(panel, wx.ID_ANY, _("  A&dd  "), style=wx.BU_EXACTFIT)
-                compat.SetToolTip(add_btn, "Ctrl-A")
-                add_btn.Bind(wx.EVT_BUTTON, self.add_row)
+                compat.SetToolTip(add_btn, "Ctrl-A, Alt-D")
+                add_btn.Bind(wx.EVT_BUTTON, self.on_button_add)
             if self.can_insert:
                 insert_btn = wx.Button(panel, wx.ID_ANY, _("  &Insert  "), style=wx.BU_EXACTFIT)
-                insert_btn.Bind(wx.EVT_BUTTON, self.insert_row)
-                compat.SetToolTip(insert_btn, "Ctrl-I")
+                insert_btn.Bind(wx.EVT_BUTTON, self.on_button_insert)
+                compat.SetToolTip(insert_btn, "Ctrl-I, Alt-I")
             if self.can_remove:
                 remove_btn = wx.Button(panel, wx.ID_ANY, _("  &Remove  "), style=wx.BU_EXACTFIT)
-                remove_btn.Bind(wx.EVT_BUTTON, self.remove_row)
-                compat.SetToolTip(remove_btn, "Ctrl-R")
+                remove_btn.Bind(wx.EVT_BUTTON, self.on_button_remove)
+                compat.SetToolTip(remove_btn, "Ctrl-R, Alt-R")
             self.buttons = [add_btn, insert_btn, remove_btn]
             for btn in self.buttons:
                 if btn: btn_sizer.Add( btn, 0, wx.LEFT | wx.RIGHT | extra_flag, 4 )
@@ -2344,24 +2452,22 @@ class GridProperty(Property):
                 self.buttons.append(reset_btn)
         else:
             self.buttons = []
-        
+
+        # optional accessibility: navigation and editors to edit a row #################################################
+        self.editors = []
         if config.preferences.show_gridproperty_editors:
-            # accessibility: navigation and editors to edit a row
-            edit_sizer = wx.FlexGridSizer(2, 3, 3)  # 2 columns
+            edit_sizer = wx.FlexGridSizer(len(self.col_defs), 2, 3, 3)
             edit_sizer.AddGrowableCol(1)
-            self.editors = editors = []
             for i, (label,datatype) in enumerate(self.col_defs):
                 edit_sizer.Add(wx.StaticText(panel, -1, _(label)), 0, wx.ALIGN_CENTER_VERTICAL)
                 editor = wx.TextCtrl(panel)
                 edit_sizer.Add(editor, 1, wx.EXPAND)
-                editors.append(editor)
+                self.editors.append(editor)
                 editor.Bind(wx.EVT_KILL_FOCUS, self.on_kill_focus_editor)
                 editor.Bind(wx.EVT_SET_FOCUS, self.on_focus_editor)
                 # use EVT_CHAR_HOOK as EVT_CHAR and EVT_KEY_DOWN don't work for Enter key, even with TE_PROCESS_ENTER
                 editor.Bind(wx.EVT_CHAR_HOOK, self.on_char_editor)
                 editor.Bind(wx.EVT_TEXT, self.on_text_editor)
-        else:
-            self.editors = []
 
         # the grid #####################################################################################################
         self.grid = wx.grid.Grid(panel, -1)
@@ -2386,7 +2492,7 @@ class GridProperty(Property):
             box_sizer.Add(btn_sizer, 0, wx.BOTTOM | wx.EXPAND, 2)
         if self.editors:
             box_sizer.Add(edit_sizer, 0, wx.BOTTOM | wx.EXPAND, 2)
-            
+
         box_sizer.Add(self.grid, 1, wx.EXPAND)
         # add our sizer to the main sizer   XXX change if required
         sizer.Add(box_sizer, self._PROPORTION, wx.EXPAND)
@@ -2401,7 +2507,7 @@ class GridProperty(Property):
         else:
             self.grid.Bind(wx.grid.EVT_GRID_CELL_CHANGED, self.on_cell_changed)
             self.grid.Bind(wx.grid.EVT_GRID_CELL_CHANGING, self.on_cell_changing)  # for validation
-        self.grid.Bind(wx.EVT_SET_FOCUS, self.on_focus)
+        self.grid.Bind(wx.EVT_SET_FOCUS, self.on_grid_focus)
 
         self._set_tooltip(self.grid.GetGridWindow(), *self.buttons)
 
@@ -2409,6 +2515,11 @@ class GridProperty(Property):
         # On wx 2.8 the EVT_CHAR_HOOK handler for the control does not get called, so on_char will be called from main
         #self.grid.Bind(wx.EVT_CHAR_HOOK, self.on_char)
         self._width_delta = None
+        self._last_focus = None
+
+    def on_grid_focus(self, event):
+        self.on_focus(event)  # Skip will be called
+        self._last_focus = "grid"
 
     def on_char(self, event):
         # key handler for grid
@@ -2417,7 +2528,7 @@ class GridProperty(Property):
             event.Skip()
             return True  # avoid propagation
         self.on_focus()
-        key = (event.GetKeyCode(), event.GetModifiers())
+        key = (event.GetKeyCode(), event.GetModifiers())  # modifiers: 1,2,4 for Alt, Ctrl, Shift
 
         # handle F2 key
         if key==(wx.WXK_F2,0) and self.grid.CanEnableCellControl():
@@ -2428,18 +2539,18 @@ class GridProperty(Property):
         # handle Ctrl-I, Ctrl-A, Ctrl-R; Alt-A will be handled by the button itself
         if key in ((73,2),(73,1)) and self.can_insert:
             # Ctrl-I, Alt-I
-            self.insert_row(event)
+            self.insert_row(set_focus=True, highlight=False)
         elif key in ((65,2),(68,1)) and self.can_add:
             # Ctrl-A, Alt-D
-            self.add_row(event)
+            self.add_row(set_index=True, delay=False)
         elif key==(65,1) and not self.immediate:
             # Alt-A
-            self.apply(event)
-        elif key==(82,2) and self.can_remove:
-            # Ctrl-R
-            self.remove_row(event)
+            self.apply()
+        elif key in ((82,2),(82,1)) and self.can_remove:
+            # Ctrl-R, Alt-R
+            self.remove_row(set_focus=True, highlight=False)
         elif key in ((84,2),(84,1)): # Ctrl-T, Alt-T
-            self.reset(event)
+            self.reset()
         elif key==(67,2):  # Ctrl-C
             if not self._copy(): event.Skip()
         elif key==(86,2):  # Ctrl-V
@@ -2447,7 +2558,6 @@ class GridProperty(Property):
         elif key==(88,2):  # Ctrl-X
             if not self._cut(): event.Skip()
         else:
-            #event.Skip()
             return False
         return True  # handled
 
@@ -2643,12 +2753,45 @@ class GridProperty(Property):
         self.cur_row = event.GetRow()
         self.cur_col = event.GetCol()
         event.Skip()
+        self._last_focus = "grid"
         self.on_focus()
         self._update_editors()
 
+    def _set_index(self, row=None, col=None):
+        # optionally, change the index; always select the grid row or cell
+        value = self.editing_values if self.editing_values is not None else self.value
+        row_count = len(value)
+        if self.can_add and self.immediate: row_count += 1
+        if row is not None:
+            self.cur_row = row
+        if self.cur_row<0:
+            self.cur_row = 0
+        elif self.cur_row >= row_count:
+            self.cur_row = row_count - 1
+        if col is not None:
+            self.cur_col = col
+
+        self._update_editors()
+
+        if not self.grid: return
+        self.grid.ClearSelection()
+        if self.cur_row>=0:
+            self.grid.MakeCellVisible(self.cur_row, 0)
+            if self._last_focus=="grid":
+                if hasattr(self.grid, "GoToCell"):
+                    self.grid.GoToCell( self.cur_row, self.cur_col )
+                else:
+                    self.grid.SetGridCursor(self.cur_row, self.cur_col)  # calls MakeCellVisible
+            else:
+                self.grid.SelectRow(self.cur_row)  # this will move the focus from the editor to the grid
+
+        if self.editors and self._last_focus=="editor":
+            self.restore_editor_focus()
+
     def update_display(self, start_editing=False):
+        # update complete grid and editors
         if start_editing: self.editing = True
-        if not self.editing: return
+        if not self.editing or not self.grid: return
 
         # values is a list of lists with the values of the cells
         value = self.editing_values if self.editing_values is not None else self.value
@@ -2721,7 +2864,7 @@ class GridProperty(Property):
         self.editing_values = None
         self._initialize_indices()
         self.update_display()
-        event.Skip()
+        if event: event.Skip()
 
     def _validate(self, row, col, value, bell=True):
         if not self.validation_res or not self.validation_res[col]:
@@ -2783,24 +2926,31 @@ class GridProperty(Property):
 
     # grid event handlers ##############################################################################################
     def on_cell_changing(self, event):
-        # XXX validate; event.Veto if not valid
-        self.on_focus()
-        if not self.validation_res: return
+        # Phoenix only: handler for EVT_GRID_CELL_CHANGING
+        # validate; event.Veto if not valid
         row,col = event.Row, event.Col
+        value = event.GetString()
+        if not self._validate(row, col, value):
+            return event.Veto()  # after that, the editor's result will not be applied
+        return event.Skip()
 
     def on_cell_changed(self, event):
         # user has entered a value into the grid
+        # Phoenix: handler for EVT_GRID_CELL_CHANGED  (after EVT_GRID_CELL_CHANGING without Veto)
+        # Classic: handler for EVT_GRID_CMD_CELL_CHANGE
         self.on_focus()
         row,col = event.Row, event.Col
-        value = event.GetEventObject().GetCellValue(row,col)  # the new value
-        OK = self._on_value_edited(row, col, value)
-        if not OK: event.Veto()
+        value = event.GetEventObject().GetCellValue(row, col) # event.GetString would return the old value here
+        if not self._validate(row, col, value):
+            return event.Veto()                               # after that, the cell will be set to the old value again
+        self._on_value_edited(row, col, value)                # this can add a row
         event.Skip()
         self._update_editors()
 
-    def _on_value_edited(self, row, col, value):
+    def _on_value_edited(self, row, col, value, set_index=None, delay=True):
         # returns False if the new value is not OK
         # grid and editors need to be updated outside
+        # set_index is used in case a row is added
 
         if not self._validate(row, col, value):
             wx.Bell()
@@ -2817,7 +2967,7 @@ class GridProperty(Property):
 
         if self.immediate or (not self.can_add and not self.can_insert and not self.can_insert):
             if row>=len(self.value):
-                self.add_row(None)
+                self.add_row(row=set_index, delay=delay)
             # immediate, i.e. no editing_values
             if self.value[row] is None:
                 self.value[row] = self.default_row[:]
@@ -2842,9 +2992,18 @@ class GridProperty(Property):
 
     # event handlers for the optional property editors (text controls) #################################################
     def on_focus_editor(self, event):
-        if self.cur_row is not None and self.cur_row<self.grid.NumberRows:
+        # track whether grid or editors had the last focus
+        self._last_focus = "editor"
+        self._last_focus_id = event.GetEventObject().GetId()
+        if self.cur_row is not None and self.cur_row>=0 and self.cur_row<self.grid.NumberRows:
             self.grid.SelectRow(self.cur_row)
         event.Skip()
+
+    def restore_editor_focus(self):
+        # restore focus after a button (Add/Insert/Remove) has been pressed
+        if self._last_focus!="editor": return
+        ctrl = self.grid.Parent.FindWindowById(self._last_focus_id)
+        if ctrl: ctrl.SetFocus()
 
     def on_text_editor(self, event):
         # editor text control content changed; validate and display result / update values
@@ -2852,14 +3011,17 @@ class GridProperty(Property):
         col = self.editors.index( ctrl )
         if not self._validate(self.cur_row, col, event.GetString(), bell=False ):
             ctrl.SetBackgroundColour(wx.RED)
+            ctrl.Refresh()
             return
         ctrl.SetBackgroundColour(wx.NullColour)
+        ctrl.Refresh()
         event.Skip()
 
-    def _on_editor_edited(self, event):
+    def _on_editor_edited(self, event, set_index=None):
         # called from key or focus event handler; set value if valid
         ctrl = event.GetEventObject()
         if not ctrl: return False
+        if not self.grid or not self.grid.NumberRows: return False
         col = self.editors.index( ctrl )
 
         ret = False
@@ -2868,14 +3030,11 @@ class GridProperty(Property):
         if value == self.grid.GetCellValue(self.cur_row, col):
             return False
 
-        if self._on_value_edited(self.cur_row, col, value):
+        if self._on_value_edited(self.cur_row, col, value, set_index=set_index, delay=False):
             value = self._ensure_editing_copy()[self.cur_row][col]
             self.grid.SetCellValue(self.cur_row, col, value)
+            #self.grid.Refresh()
             ret = True
-
-        self.cur_col = col
-        self.grid.SelectRow(self.cur_row)
-        self.on_focus()
 
         return ret
 
@@ -2885,35 +3044,48 @@ class GridProperty(Property):
         event.Skip()
 
     def on_char_editor(self, event):
-        # EVT_CHAR_HOOK handler
-        keycode = event.KeyCode
-        if keycode not in (wx.WXK_RETURN, wx.WXK_ESCAPE, wx.WXK_UP, wx.WXK_DOWN):
-            event.Skip()
-            return
+        # EVT_CHAR_HOOK handler for the text controls if config.show
+        key = (event.GetKeyCode(), event.GetModifiers())    # modifiers: 1,2,4 for Alt, Ctrl, Shift
 
-        if keycode == wx.WXK_ESCAPE:
+        if key[0] == wx.WXK_ESCAPE:
             self._update_editors()
             return
 
-        self._on_editor_edited(event)
-        if keycode==wx.WXK_UP:
-            self._set_row_index( self.cur_row - 1 )
-        elif keycode==wx.WXK_DOWN:
-            self._set_row_index( self.cur_row + 1 )
+        if key==(9,0) and self.editors:
+            # Tab key and config.preferences.show_gridproperty_editors active
+            if event.GetEventObject() is self.editors[-1]:
+                # avoid the focus moving from the last text control into the grid where it would be 'trapped'
+                wx.Bell()
+                return
 
-        self._update_editors()
+        if key[0] in (wx.WXK_RETURN, wx.WXK_UP, wx.WXK_DOWN):
+            # flush and if cursor key was hit, go to another line
+            row = self.cur_row
+            if key[0]==wx.WXK_UP:
+                row -= 1
+            elif key[0]==wx.WXK_DOWN:
+                row += 1
+            self._on_editor_edited(event, set_index=row)
+            self._set_index(row)
+            return
 
-    def _set_row_index(self, row):
-        value = self.editing_values if self.editing_values is not None else self.value
-        row_count = len(value)
-        if self.can_add and self.immediate: row_count += 1
-
-        self.cur_row = row
-        if self.cur_row<0:
-            self.cur_row = 0
-        elif self.cur_row >= row_count:
-            self.cur_row = row_count - 1
-        self.grid.SelectRow(self.cur_row)
+        # handle Ctrl-I, Ctrl-A, Ctrl-R; Alt-A will be handled by the button itself
+        if key in ((73,2),(73,1)) and self.can_insert:
+            # Ctrl-I, Alt-I
+            self.insert_row(set_focus=False, highlight=True)
+        elif key in ((65,2),(68,1)) and self.can_add:
+            # Ctrl-A, Alt-D
+            self.add_row(set_index=False, delay=False)
+        #elif key==(65,1) and not self.immediate:
+            ## Alt-A
+            #self.apply(event)
+        elif key in ((82,2),(82,1)) and self.can_remove:
+            # Ctrl-R, Alt-R
+            self.remove_row(set_focus=False, highlight=True)
+        #elif key in ((84,2),(84,1)): # Ctrl-T, Alt-T
+            #self.reset(event, from_editor)
+        else:
+            event.Skip()
 
     def _update_editors(self, ctrl=None):
         if not self.editors: return
@@ -2937,51 +3109,102 @@ class GridProperty(Property):
                 editor.SetValue(str(row[i]))
                 editor.Enable()
 
-    # add/insert/remove rows; update action buttons#####################################################################
-    def add_row(self, event):
+    # add/insert/remove rows; update action buttons; set focus to grid if buttons are pressed ##########################
+    def _set_grid_focus(self, row=None):
+        if row is None: row = self.cur_row
+        self.grid.ClearSelection()
+        if hasattr(self.grid, "GoToCell"):
+            self.grid.GoToCell( row, self.cur_col )
+        else:
+            self.grid.SetGridCursor(row,self.cur_col)  # calls MakeCellVisible
+        self.grid.SetFocus()
+
+    def on_button_add(self, event):
+        if self._last_focus=="grid":
+            self.add_row(set_index=True)
+        elif self._last_focus=="editor":
+            self.add_row(set_index=True)
+            self.restore_editor_focus()
+        else:
+            self.add_row(set_index=True)
+
+    def add_row(self, row=None, set_index=False, delay=True):
         self.on_focus()
         values = self._ensure_editing_copy()
-        row = len(values)
-        default_row_values = self._get_default_row( row )
-        values.append( default_row_values )
-        self.grid.AppendRows()
-        for col, value in enumerate(default_row_values):
-            self.grid.SetCellValue(row, col, str(default_row_values[col]))
-        self.grid.MakeCellVisible(len(values), 0)
-        self.grid.ForceRefresh()
+        if row is None:
+            row = len(values)
+            if self.can_add and self.immediate: row += 1
+        values.append( self._get_default_row( len(values) ) )
+
         if self.with_index:
             self.indices.append("")
         self._update_remove_button()
         self._update_apply_button()
         self._update_indices()
-        if compat.version >= (3,0):
-            self.grid.GoToCell( len(values)-1, self.cur_col )
+        if delay:
+            #  - don't modify the grid within a EVT_GRID_CELL_CHANGED handler
+            # - use CallLater to avoid GoToCell causing on_cell_changed being called due to self.grid.GoToCell
+            wx.CallLater(100, self._add_grid_row, row, set_index)
+        else:
+            self._add_grid_row(row, set_index)
 
-    def remove_row(self, event):
+    def _add_grid_row(self, row, set_index=False):
+        # called via CallAfter from add_row; either when "Add" is required or when the user has edited the last row
+        if not self.grid: return
+        self.grid.AppendRows()
+        # fill the grid with default values; these are not in self.value unless the user edits them
+        last_row = self.grid.NumberRows-1
+        for col, value in enumerate( self._get_default_row(row) ):
+            self.grid.SetCellValue(last_row, col, compat.unicode(value))
+        if set_index:
+            self._set_index(row)
+
+    def on_button_remove(self, event):
+        if self._last_focus=="grid":
+            self.remove_row(set_focus=True, highlight=False)
+        elif self._last_focus=="editor":
+            self.remove_row(set_focus=False, highlight=True)
+            self.restore_editor_focus()
+        else:
+            self.remove_row(set_focus=False, highlight=False)
+
+    def remove_row(self, set_focus=True, highlight=False):
         self.on_focus()
+        values = self._ensure_editing_copy()
+        row = self.cur_row
         if self.immediate and self.can_add and self.cur_row==self.grid.GetNumberRows()-1:
-            return
+            # cursor is in last row, which is empty and not related to values
+            # check whether the row before is empty, if yes, we still can remove; if not, return
+            if self.cur_row==0 or values[self.cur_row-1]!=self.default_row:
+                if set_focus: self._set_grid_focus()
+                return
+            row -= 1
         if not self.can_remove_last and self.grid.GetNumberRows()==1:
             self._logger.warning( _('You can not remove the last entry!') )
             return
-        values = self._ensure_editing_copy()
         if values:
             self.grid.DeleteRows(self.cur_row)
-            del values[self.cur_row]
+            del values[row]
             if self.with_index:
                 del self.indices[self.cur_row]
-            if self.cur_row>=len(values):
+            if self.cur_row>=len(values) and self.cur_row>0:
                 self.cur_row -= 1
 
         self._update_remove_button()
         self._update_apply_button()
         self._update_indices()
-        self._update_editors()
-        if compat.version >= (3,0):
-            self.grid.GoToCell( self.cur_row, self.cur_col )
-            self.grid.SetFocus()
+        self._set_index()
 
-    def insert_row(self, event):
+    def on_button_insert(self, event):
+        if self._last_focus=="grid":
+            self.insert_row(set_focus=True, highlight=False)
+        elif self._last_focus=="editor":
+            self.insert_row(set_focus=False, highlight=True)
+            self.restore_editor_focus()
+        else:
+            self.insert_row(set_focus=False, highlight=False)
+
+    def insert_row(self, set_focus=True, highlight=False):
         self.on_focus()
         self.grid.InsertRows(self.cur_row)
         self.grid.MakeCellVisible(self.cur_row, 0)
@@ -2989,15 +3212,15 @@ class GridProperty(Property):
         values = self._ensure_editing_copy()
         row = self._get_default_row(self.cur_row)
         values.insert(self.cur_row, row)
+        if self.cur_row==-1: self.cur_row=0
         if self.with_index:
             self.indices.insert(self.cur_row, "")
+        for col, value in enumerate( values[self.cur_row] ):
+            self.grid.SetCellValue(self.cur_row, col, compat.unicode(value))
         self._update_remove_button()
         self._update_apply_button()
         self._update_indices()
-        self._update_editors()
-        if compat.version >= (3,0):
-            self.grid.GoToCell( self.cur_row, self.cur_col )
-            self.grid.SetFocus()
+        self._set_index()
 
     def _ensure_editing_copy(self):
         if self.immediate: return self.value
@@ -3009,9 +3232,10 @@ class GridProperty(Property):
         """Enable or disable remove button
 
         The state of the remove button depends on the number of rows and self.can_remove_last."""
-        if not self.grid or not self.buttons: return
-        if self.can_remove and not self.can_remove_last:
-            self.buttons[-1].Enable(self.grid.GetNumberRows() > 1)
+        if not self.grid or not self.buttons or not self.can_remove: return
+            #if  and not self.can_remove_last:
+        enable = self.grid.GetNumberRows() > 1
+        self.buttons[-1].Enable(enable)
 
     def _update_apply_button(self):
         if not self.grid or not self.buttons or self.immediate: return
@@ -3134,6 +3358,45 @@ class ActionButtonProperty(Property):
         return
 
 
+class DisplayProperty(TextProperty):
+    #TOOLTIP = None
+
+    def __init__(self, value):
+        multiline = "\n" in value
+        #self.TOOLTIP = value
+        TextProperty.__init__(self, value, multiline, fixed_height=True)
+
+    def create_editor(self, panel, sizer):
+        self.text = wx.TextCtrl(panel, value=self.value, style=wx.TE_READONLY|wx.TE_MULTILINE|wx.TE_NO_VSCROLL)
+        self.text.SetBackgroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_BTNFACE))
+
+        # layout of the controls / sizers
+        proportion = self._PROPORTION
+        if self.multiline: # for multiline make it higher
+            h = self.text.GetCharHeight()
+            if self.multiline=="grow":
+                sizer.SetItemMinSize(self.text, -1, h * 1.5)
+                proportion = 0
+            else:
+                sizer.SetItemMinSize(self.text, -1, h * 3)
+        sizer.Add(self.text, proportion, wx.ALL |wx.EXPAND, 3)
+
+        compat.SetToolTip(self.text, self.value)
+        #self._set_tooltip(label, self.text, self.enabler, *self.additional_controls)
+
+
+    def write(self, output, tabs=0):
+        return
+
+
+########################################################################################################################
+# functions to modify property lists in place
+
+def insert_after(PROPERTIES, after, *add):
+    i = PROPERTIES.index(after)
+    for j, name in enumerate(add):
+        PROPERTIES.insert(i+1+j, name)
+
 ########################################################################################################################
 
 class PropertyOwner(object):
@@ -3182,19 +3445,26 @@ class PropertyOwner(object):
                 prop.set(new)
         if notify:
             self.properties_changed(properties)
+
     def check_property_modification(self, name, value, new_value):
         # return False in derived class to veto a user modification
         return True
-    def properties_changed(self, modified):
-        """properties edited; trigger actions like widget or sizer update;
-        'modified' is None or a list of property names;
-        the properties_changed method of a derived class may add properties to 'modified' before calling base classes"""
+    
+    def _properties_changed(self, modified, actions):
+        # action method(s)
         pass
+
+    def properties_changed(self, modified):
+        # in derived classes, actions might be triggered depending on 'actions'
+        actions = set()
+        self._properties_changed(modified, actions)
+        return actions
+
     def get_properties(self, without=set()):
         # return list of properties to be written to XML file
         ret = []
         for name in self.property_names:
-            if name in ("class","name") or name in without: continue
+            if name in ("class","name","instance_class") or name in without: continue
             prop = self.properties[name]
             if not prop.HAS_DATA: continue
             if prop.attributename in without: continue  # for e.g. option/proportion
@@ -3215,7 +3485,17 @@ class PropertyOwner(object):
         if prop.blocked: return False
         return prop.is_active()
 
+    def get_prop_value(self, name, default):
+        # return property value if property exists, else the default
+        if not self.check_prop(name): return default
+        return self.properties[name].get()
+
     def check_prop_truth(self, name):
         # return True if property exists, is active and not blocked and the value is tested for truth
+        return self.get_prop_value(name, False) and True or False
+
+    def check_prop_nodefault(self, name):
+        # return True if property exists, is active and not blocked and the value is not the default value
         if not self.check_prop(name): return False
-        return bool(self.properties[name].get())
+        p = self.properties[name]
+        return p.value!=p.default_value

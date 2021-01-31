@@ -27,7 +27,7 @@ import wx
 
 
 version = wx.VERSION_STRING[:3]  # Version string of major dot minor version number
-if version == "4.0": version = "3.0"
+if version.startswith("4."): version = "3." + version[2:]
 version = (int(version[0]), int(version[2]) ) # major,minor
 
 
@@ -195,6 +195,27 @@ else:
         widget.Hide()
         wx.CallAfter(_Destroy, widget)
 
+def wxWindow_SendSizeEventToParent28(item, flags=0):
+    """\
+    Implementation of wxWindow.SendSizeEventToParent for wxPython 2.8
+
+    @param item:  Instance of wxWindow
+    @param flags: flags parameter for SendSizeEvent (ignored)
+    """
+    parent = item.GetParent()
+    if parent and not parent.IsBeingDeleted():
+        parent.SendSizeEvent()
+
+
+def wxWindow_SendSizeEventToParent3(item, flags=0):
+    """\
+    Wrapper of wxWindow.SendSizeEventToParent
+
+    @param item:  Instance of wxWindow
+    @param flags: flags parameter for SendSizeEvent
+    """
+    item.SendSizeEventToParent(flags)
+
 
 # Set different functions depending on the active wxPython version
 if wx.VERSION[:2] >= (2, 9):
@@ -202,11 +223,13 @@ if wx.VERSION[:2] >= (2, 9):
     GridSizer_GetCols = GridSizer_GetCols3
     SizerItem_SetWindow = SizerItem_AssignWindow
     wxWindow_IsEnabled = wxWindow_IsThisEnabled
+    wxWindow_SendSizeEventToParent = wxWindow_SendSizeEventToParent3
 else:
     GridSizer_GetRows = GridSizer_GetRows28
     GridSizer_GetCols = GridSizer_GetCols28
     SizerItem_SetWindow = SizerItem_SetWindow28
     wxWindow_IsEnabled = wxWindow_IsEnabled28
+    wxWindow_SendSizeEventToParent = wxWindow_SendSizeEventToParent28
 
 
 import wx.grid
@@ -232,12 +255,16 @@ if len(wx.VERSION)==5:
     def SetToolTip(c, s):
         c.SetToolTipString(s)
     wx_EmptyBitmap = wx.EmptyBitmap
+    wx_EmptyImage = wx.EmptyImage
     wx_EmptyIcon = wx.EmptyIcon
+    wx_NamedColour = wx.NamedColour
     def ConvertPixelsToDialog(widget, size):
         return widget.ConvertPixelSizeToDialog(size)
 
     ListCtrl_SetStringItem    = wx.ListCtrl.SetStringItem
     ListCtrl_InsertStringItem = wx.ListCtrl.InsertStringItem
+    ListCtrl_InsertImageItem = wx.ListCtrl.InsertImageItem
+
     def SetCursor(window, cursor):
         window.SetCursor(wx.StockCursor(cursor))
         
@@ -261,12 +288,16 @@ else:
     def SetToolTip(c, s):
         c.SetToolTip(s)
     wx_EmptyBitmap = wx.Bitmap
+    wx_EmptyImage = wx.Image
     wx_EmptyIcon = wx.Icon
+    wx_NamedColour = wx.Colour
     def ConvertPixelsToDialog(widget, size):
         return widget.ConvertPixelsToDialog(size)
 
     ListCtrl_SetStringItem    = wx.ListCtrl.SetItem
     ListCtrl_InsertStringItem = wx.ListCtrl.InsertItem
+    ListCtrl_InsertImageItem = wx.ListCtrl.InsertItem
+
     def SetCursor(window, cursor):
         window.SetCursor(wx.Cursor(cursor))
 

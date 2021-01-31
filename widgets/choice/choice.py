@@ -22,8 +22,8 @@ class EditChoice(ManagedBase):
     _PROPERTIES = ["Widget", "selection", "choices"]
     PROPERTIES = ManagedBase.PROPERTIES + _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
 
-    def __init__(self, name, parent, choices, pos):
-        ManagedBase.__init__(self, name, 'wxChoice', parent, pos)
+    def __init__(self, name, parent, index, choices):
+        ManagedBase.__init__(self, name, parent, index)
 
         # initialise instance properties
         self.selection = np.SpinProperty(0, val_range=(-1,len(choices)-1), immediate=True )
@@ -31,7 +31,7 @@ class EditChoice(ManagedBase):
 
     def create_widget(self):
         choices = [c[0] for c in self.choices]
-        self.widget = wx.Choice(self.parent_window.widget, self.id, choices=choices)
+        self.widget = wx.Choice(self.parent_window.widget, wx.ID_ANY, choices=choices)
         self.widget.SetSelection(self.selection)
         self.widget.Bind(wx.EVT_LEFT_DOWN, self.on_set_focus)
 
@@ -40,7 +40,7 @@ class EditChoice(ManagedBase):
             return ChoicesHandler(self)
         return ManagedBase.get_property_handler(self, prop_name)
 
-    def properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         # self.selection needs to be in range (-1,len(self.choices)-1)
         choices = self.choices
         max_selection = len(choices)-1
@@ -53,8 +53,7 @@ class EditChoice(ManagedBase):
                 # update widget
                 self.widget.Clear()
                 for c in choices: self.widget.Append(c[0])
-                if hasattr(self.parent, "set_item_best_size") and not self.properties['size'].is_active():
-                    self.parent.set_item_best_size(self, size=self.widget.GetBestSize())
+                actions.add("layout")
 
         if not modified or "selection" in modified or set_selection:
             set_selection = True
@@ -63,29 +62,24 @@ class EditChoice(ManagedBase):
         if self.widget and set_selection and self.widget.GetSelection()!=self.selection:
             self.widget.SetSelection(self.selection)
 
-        ManagedBase.properties_changed(self, modified)
+        ManagedBase._properties_changed(self, modified, actions)
 
 
 
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for EditChoice objects"
     name = parent.toplevel_parent.get_next_contained_name('choice_%d')
     with parent.frozen():
-        editor = EditChoice(name, parent, [(u'choice 1',)], pos)
+        editor = EditChoice(name, parent, index, [(u'choice 1',)])
         editor.check_defaults()
         if parent.widget: editor.create()
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory to build EditChoice objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        name = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditChoice(name, parent, [], pos)
+    return EditChoice(name, parent, index, [])
 
 
 def initialize():
@@ -94,4 +88,4 @@ def initialize():
     common.widgets['EditChoice'] = builder
     common.widgets_from_xml['EditChoice'] = xml_builder
 
-    return common.make_object_button('EditChoice', 'choice.xpm')
+    return common.make_object_button('EditChoice', 'choice.png')

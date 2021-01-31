@@ -19,22 +19,21 @@ class SourceFileContent(BaseSourceFileContent):
     rec_block_start = re.compile(
         r'^(?P<spaces>\s*)'                     # leading spaces
         r'#\s*'                                 # comment sign
-        r'begin\s+wxGlade:\s*'                  # "begin wxGlade:" statement and tailing spaces
+        r'begin\s+wxGlade:\s*'                  # "begin wxGlade:" statement and trailing spaces
         r'(?P<classname>[a-zA-Z_]+\w*)??'       # class or function name (non-greedy)
         r'[.]?'                                 # separator between class and function / block (non-greedy)
         r'(?P<block>\w+)'                       # function / block name
-        r'\s*$' )                               # tailing spaces
+        r'\s*$' )                               # trailing spaces
 
     rec_block_end = re.compile(
         r'^\s*'                                 # leading spaces
         r'#\s*'                                 # comment sign
         r'end\s+wxGlade'                        # "end exGlade" statement
-        r'\s*$' )                               # tailing spaces
+        r'\s*$' )                               # trailing spaces
 
     # Less precise regex, but matches definitions with base classes having module qualified names.
     rec_class_decl = re.compile(
-        r'^\s*'                                        # leading spaces
-        r'class\s+([a-zA-Z_]\w*)\s*(\([\s\w.,]*\))?:'  # "class <name>" statement
+        r'^class\s+([a-zA-Z_]\w*)\s*(\([\s\w.,]*\))?:' # starting wihth "class <name>" statement
         r'\s*$' )                                      # tailing spaces
 
     rec_event_handler = re.compile(
@@ -44,7 +43,7 @@ class SourceFileContent(BaseSourceFileContent):
         r'\(.*\)(?:\s*->\s*None)*:'                        # function parameters; optional PEP 3107 function annotations 
         r'\s*'                                             # optional spaces
         r'#\s*wxGlade:\s*(?P<class>\w+)\.<event_handler>'  # wxGlade event handler statement with class name
-        r'\s*$' )                                          # tailing spaces
+        r'\s*$' )                                          # trailing spaces
 
     def build_untouched_content(self):
         BaseSourceFileContent.build_untouched_content(self)
@@ -182,7 +181,10 @@ class PythonCodeWriter(BaseLangCodeWriter, wcodegen.PythonMixin):
 
     name_ctor = '__init__'
 
-    shebang = '#!/usr/bin/env python\n'
+    if compat.PYTHON2:
+        shebang = '#!/usr/bin/env python\n'
+    else:
+        shebang = '#!/usr/bin/env python3\n'
 
     SourceFileContent = SourceFileContent
 
@@ -280,17 +282,17 @@ from %(top_win_module)s import %(top_win_class)s\n\n"""
     def generate_code_ctor(self, code_obj, is_new, tab):
         # generate code for the class constructor, including all children
         code_lines = []
-        write = code_lines.append
+        write = lambda s: code_lines.append(s if s.strip() else '\n')
 
         builder = self.obj_builders[code_obj.WX_CLASS]
         mycn = getattr(builder, 'cn', self.cn)
         mycn_f = getattr(builder, 'cn_f', self.cn_f)
-        fmt_klass = self.cn_class(code_obj.klass)
+        fmt_klass = self.cn_class( code_obj.get_prop_value("class", code_obj.WX_CLASS) )
 
         # custom base classes support
-        custom_base = getattr(code_obj, 'custom_base', getattr(code_obj, 'custom_base', None) )
-        if self.preview or (custom_base and not custom_base.strip()):
-            custom_base = None
+        custom_base = None
+        if code_obj.check_prop_nodefault('custom_base') and not self.preview:
+            custom_base = code_obj.custom_base.strip() or None
 
         # generate constructor code
         if is_new:
@@ -309,7 +311,7 @@ from %(top_win_module)s import %(top_win_class)s\n\n"""
                                            'function':self.name_ctor, 'klass':fmt_klass, 'tab':tab} )
 
         # the optional initial code from the code properties
-        if not self.preview and code_obj.check_prop("extracode_pre"):
+        if self._check_code_prop(code_obj, "extracode_pre"):
             for l in code_obj.properties["extracode_pre"].get_lines():
                 write(tab + l)
 
@@ -335,11 +337,13 @@ from %(top_win_module)s import %(top_win_class)s\n\n"""
         # set size here to avoid problems with splitter windows
         if code_obj.check_prop('size'):
             write( tab + self.generate_code_size(code_obj) )
+        if code_obj.check_prop('min_size'):
+            write( tab + self.generate_code_size(code_obj, code_obj.min_size, "SetMinSize") )
 
         for l in builder.get_properties_code(code_obj):
             write(tab + l)
 
-        if not self.preview and code_obj.check_prop_truth('extraproperties'):
+        if self._check_code_prop(code_obj, "extraproperties"):
             for l in self.generate_code_extraproperties(code_obj):
                 write(tab + l)
 
@@ -359,7 +363,7 @@ from %(top_win_module)s import %(top_win_class)s\n\n"""
             write(tab + l)
 
         # the optional final code from the code properties
-        if not self.preview and code_obj.check_prop("extracode_post"):
+        if self._check_code_prop(code_obj, "extracode_post"):
             for l in code_obj.properties["extracode_post"].get_lines():
                 write(tab + l)
 
@@ -440,15 +444,14 @@ from %(top_win_module)s import %(top_win_class)s\n\n"""
             return '%s = %s\n' % (name, val), name
         return 'global %s; %s = %s\n' % (name, name, val), name
 
-    def generate_code_size(self, obj, size=None):
+    def generate_code_size(self, obj, size=None, method=None):
         objname = self.format_generic_access(obj)
         if size is None:
             size = obj.properties["size"].get_string_value()
         use_dialog_units = (size[-1] == 'd')
-        if not obj.parent_window:
-            method = 'SetSize'
-        else:
-            method = 'SetMinSize'
+        if method is None:
+            method = 'SetMinSize'  if obj.parent_window  else  'SetSize'
+
         if use_dialog_units:
             if compat.IS_CLASSIC:
                 return '%s.%s(%s(%s, (%s)))\n' % ( objname, method, self.cn('wxDLG_SZE'), objname, size[:-1] )
@@ -508,7 +511,7 @@ from %(top_win_module)s import %(top_win_class)s\n\n"""
         elif obj.name.startswith('self.'):
             return obj.name
         # spacer.name is "<width>, <height>" already, but wxPython expect a tuple instead of two single values
-        elif obj.klass in ('spacer','sizerslot'):
+        elif obj.WX_CLASS in ('spacer','sizerslot'):
             return '(%s)' % obj.name
         elif self.store_as_attr(obj):
             return 'self.%s' % obj.name

@@ -31,15 +31,26 @@ wxPython is a Wrapper around the wxWidgets GUI library, which is written in C++.
 
 You may want to visit these pages for more information:
  * The wxPython home page: https://wxpython.org/
+ * The **wxPython API** documentation: https://docs.wxpython.org/
  * An overview including a `Hello World` application example: https://wxpython.org/pages/overview/
  * A more comprehensive `Getting Started` guide: https://wiki.wxpython.org/Getting%20Started
  * The wxWidgets home page: https://www.wxwidgets.org/
 
 
-
 The wxGlade documentation is intended to be readable without previous wx knowledge.
 It will teach you how to create windows, handle events and how to integrate with your 'business logic' code.
 Sooner or later you will have to look into the wx documentation, though.
+
+If you are new to wx/Python, make sure that you work through this documentation at least up to and including section
+"Create and Use Source Code".
+
+Also please note that the **wxPython demo** is probably most important resource for exploring the available controls!
+The demo has examples and example code for most widgets, including the more complicated and powerful ones like the
+grid control.
+
+If you don't have the demo, have a look here: https://extras.wxpython.org/wxPython4/extras/ |br|
+Go to the subdirectory matching your wxPython version and download the demo archive. |br|
+Then unpack the archive and run ``demo.py``.
 
 
 
@@ -52,6 +63,8 @@ With wxWidgets / wxPython and similar toolkits, usually controls are not placed 
  - There are *horizontal box sizers*, *vertical box sizers* and *grid sizers*.
  - The *box sizers* may have a label and a box around them. In that case they're called *static box sizers*.
  - Each sizer and contained sizer items can be fixed size or grow to fill the available space, e.g. when the window is resized.
+ - Typically in a main window or frame the sizer makes the contents fill the available space, while dialogs will
+   be sized to the minimum required space.
 
 Sizer Examples
 ==============
@@ -185,7 +198,9 @@ Example application: Calculator window
 |     :width: 200                                                      |
 +----------------------------------------------------------------------+
 
-This window is managed by |green| **one vertical box sizer with six slots** |endcolor| for the five rows, plus a horizontal line and five |blue| **horizontal box sizers** |endcolor| for the horizontally arranged controls they contain (e.g. one label and one button):
+This window is managed by |green| **one vertical box sizer with six slots** |endcolor| for the five rows,
+plus a horizontal line and five |blue| **horizontal box sizers** |endcolor| for the horizontally arranged controls
+they contain (i.e. label plus text control, label plus radio box or button plus button):
 
 .. list-table::
    :header-rows: 0
@@ -198,8 +213,9 @@ This window is managed by |green| **one vertical box sizer with six slots** |end
        The inputs for Value 1 and 2 are set to grow horizontally;
        the Result output is growing horizontally and EXPANDing vertically. 
      - In the *Tree* window, you can see the hierarchical structure: |br|
-       |Calculator_06_tree| |br|
-       Note that horizontal and vertical sizers are |br| visualized with different icons: |sizer_h| |sizer| .
+       |Calculator_06_tree| |br| |br|
+       Note that |blue| horizontal |endcolor| and |green| vertical |endcolor| sizers are |br| 
+       visualized with different icons: |sizer_h| |sizer| .
 
 
 Later we'll have a look at alternative structures which allow better alignment of the fields.
@@ -210,9 +226,9 @@ Later we'll have a look at alternative structures which allow better alignment o
       Usually you will need mainly box sizers and maybe one or two FlexGridSizers.
     * Use nested sizers to match the hierarchical / logical structure of your project. This will make it easy
       to re-arrange things to find the best user interface.
-    * Never ever try to use a GridBagSizer as main sizer of a window trying to resemble pixel placement or
+    * **Never ever try to use a Grid(Bag)Sizer as main sizer** of a window trying to resemble pixel placement or
       Tkinter's grid geometry manager. This is a mess to create and maintain.
-      Actually, a GridBagSizer is almost never needed.
+      Actually, a GridBagSizer is rarely needed.
 
 
 
@@ -220,14 +236,3 @@ Later we'll have a look at alternative structures which allow better alignment o
    :width: 200
    :align: middle
 
-
-wxGlade Requirements and Restrictions
-=====================================
-
-The user interface and internal data structures of wxGlade impose some restrictions on the structure of a window.
-A frame or panel cannnot have a widget as direct child. They always need a toplevel sizer first. So don't be surprised to see constructions like these:
-
- - frame -> sizer with single slot -> panel -> sizer ....
- - frame -> sizer with single slot -> notebook -> ...
-
-On the other hand, a notebook or a splitter can have widgets as direct children.

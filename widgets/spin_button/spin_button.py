@@ -23,8 +23,8 @@ class EditSpinButton(ManagedBase, EditStylesMixin):
     PROPERTIES = ManagedBase.PROPERTIES + _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
     recreate_on_style_change = True
 
-    def __init__(self, name, parent, pos):
-        ManagedBase.__init__(self, name, 'wxSpinButton', parent, pos)
+    def __init__(self, name, parent, index):
+        ManagedBase.__init__(self, name, parent, index)
         EditStylesMixin.__init__(self)
 
         # initialise instance properties
@@ -32,11 +32,11 @@ class EditSpinButton(ManagedBase, EditStylesMixin):
         self.value = np.SpinPropertyA(0, val_range=(0,100), immediate=True)
 
     def create_widget(self):
-        self.widget = wx.SpinButton(self.parent_window.widget, self.id, style=self.style)
+        self.widget = wx.SpinButton(self.parent_window.widget, wx.ID_ANY, style=self.style)
         self.widget.SetRange( *self.properties["range"].get_tuple() )
         self.widget.SetValue( self.value )
 
-    def properties_changed(self, modified):  # from EditSlider
+    def _properties_changed(self, modified, actions):  # from EditSlider
         if not modified or "range" in modified and self.widget:
             mi,ma = self.properties["range"].get_tuple()
             self.widget.SetRange(mi, ma)
@@ -56,30 +56,24 @@ class EditSpinButton(ManagedBase, EditStylesMixin):
                     value = ma
                 if self.widget: self.widget.SetValue(value)
 
-        EditStylesMixin.properties_changed(self, modified)
-        ManagedBase.properties_changed(self, modified)
+        EditStylesMixin._properties_changed(self, modified, actions)
+        ManagedBase._properties_changed(self, modified, actions)
 
 
-
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for EditSpinButton objects"
     name = parent.toplevel_parent.get_next_contained_name('spin_button_%d')
     with parent.frozen():
-        editor = EditSpinButton(name, parent, pos)
+        editor = EditSpinButton(name, parent, index)
         editor.properties["style"].set_to_default()
         editor.check_defaults()
         if parent.widget: editor.create()
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory function to build EditSpinButton objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        name = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditSpinButton(name, parent, pos)
+    return EditSpinButton(name, parent, index)
 
 
 def initialize():
@@ -88,4 +82,4 @@ def initialize():
     common.widgets['EditSpinButton'] = builder
     common.widgets_from_xml['EditSpinButton'] = xml_builder
 
-    return common.make_object_button('EditSpinButton', 'spinbtn.xpm')
+    return common.make_object_button('EditSpinButton', 'spinbtn.png')

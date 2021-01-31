@@ -256,7 +256,7 @@ class LispCodeWriter(BaseLangCodeWriter, wcodegen.LispMixin):
             ret = self.tmpl_detailed
         if ret:
             if not self._mark_blocks:
-                ret.replace(";;; end of class %(klass)s\n", "")
+                ret = ret.replace(";;; end of class %(klass)s\n", "")
             return ret
         
         # check for templates for simple startup code
@@ -302,15 +302,15 @@ class LispCodeWriter(BaseLangCodeWriter, wcodegen.LispMixin):
         builder = self._get_object_builder(parent_klass, obj)
         if not builder: return None
 
-        if obj.name not in ("spacer","sizerslot", "SLOT"):
+        if obj.IS_NAMED:
             self.class_lines.append( self._format_name(obj.name) )
-        if obj.klass in ("wxBoxSizer", "wxStaticBoxSizer", "wxGridSizer", "wxFlexGridSizer"):
+        if obj.WX_CLASS in ("wxBoxSizer", "wxStaticBoxSizer", "wxGridSizer", "wxFlexGridSizer"):
             self.dependencies.add( '(use-package :wxSizer)' )
         else:
-            if obj.klass not in ("spacer", "sizerslot"):
-                self.dependencies.add( '(use-package :%s)'%obj.klass )
+            if obj.WX_CLASS not in ("spacer", "sizerslot"):
+                self.dependencies.add( '(use-package :%s)'%obj.get_instantiation_class() )
 
-        if obj.klass == "wxMenuBar":
+        if obj.WX_CLASS == "wxMenuBar":
             self.dependencies.add( '(use-package :wxMenu)' )
 
         return BaseLangCodeWriter.add_object(self, parent_klass, parent, parent_builder, obj)
@@ -328,9 +328,7 @@ class LispCodeWriter(BaseLangCodeWriter, wcodegen.LispMixin):
         mycn_f = getattr(builder, 'cn_f', self.cn_f)
 
         # custom base classes support
-        custom_base = getattr( code_obj, 'custom_base', code_obj.properties.get('custom_base', None) )
-        if self.preview or (custom_base and not custom_base.strip()):
-            custom_base = None
+        custom_base = code_obj.check_prop_nodefault('custom_base') and code_obj.custom_base.strip() or None
 
         # generate constructor code
         if is_new:
@@ -377,8 +375,10 @@ class LispCodeWriter(BaseLangCodeWriter, wcodegen.LispMixin):
                 write(stmt_style % {'style': m_style, 'tab': tab} )
 
         # set size here to avoid problems with splitter windows
-        if 'size' in code_obj.properties and code_obj.properties["size"].is_active():
+        if code_obj.check_prop('size'):
             write( tab + self.generate_code_size(code_obj) )
+        if code_obj.check_prop('min_size'):
+            write( tab + self.generate_code_size(code_obj, code_obj.min_size, "SetMinSize") )
 
         for l in builder.get_properties_code(code_obj):
             write(tab + l)
@@ -457,11 +457,13 @@ class LispCodeWriter(BaseLangCodeWriter, wcodegen.LispMixin):
             return '%s = %s\n' % (name, val), name
         return 'global %s; %s = %s\n' % (name, name, val), name
 
-    def generate_code_size(self, obj):
+    def generate_code_size(self, obj, size=None, method=None):
         objname = self.format_generic_access(obj)
-        size = obj.properties["size"].get_string_value()
+        if size is None:
+            size = obj.properties["size"].get_string_value()
         use_dialog_units = (size[-1] == 'd')
-        method = 'SetMinSize'  if obj.parent_window else  'wxWindow_SetSize'
+        if method is None:
+            method = 'SetMinSize'  if obj.parent_window else  'wxWindow_SetSize'
 
         if use_dialog_units:
             return '(%s %s(%s(%s (%s))))\n' % ( method, objname, self.cn('wxDLG_SZE'), objname, size[:-1] )
@@ -481,7 +483,7 @@ class LispCodeWriter(BaseLangCodeWriter, wcodegen.LispMixin):
             return obj.name
         # spacer.name is "<width>, <height>" already, but wxLisp expect
         # a tuple instead of two single values
-        elif obj.klass in ('spacer','sizerslot'):
+        elif obj.WX_CLASS in ('spacer','sizerslot'):
             return '(%s)' % obj.name
         # wxList use class attributes always (unfortunately)
 #        elif self.store_as_attr(obj):

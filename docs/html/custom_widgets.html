@@ -5,14 +5,14 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <title>Custom Widget &#8212; wxGlade 0.9.3 documentation</title>
+    <title>Custom Widget &#8212; wxGlade 1.0.0 documentation</title>
     <link rel="stylesheet" href="_static/classic.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    './',
-        VERSION:     '0.9.3',
+        VERSION:     '1.0.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true,
@@ -24,8 +24,8 @@
     <script type="text/javascript" src="_static/doctools.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Reference: Keyboard and Mouse Actions" href="reference.html" />
-    <link rel="prev" title="Bitmaps" href="bitmaps.html" /> 
+    <link rel="next" title="Menu, Status Bar, Tool Bar" href="menu_status_tool.html" />
+    <link rel="prev" title="Dialogs" href="dialogs.html" /> 
   </head>
   <body>
     <div class="related" role="navigation" aria-label="related navigation">
@@ -35,12 +35,12 @@
           <a href="genindex.html" title="General Index"
              accesskey="I">index</a></li>
         <li class="right" >
-          <a href="reference.html" title="Reference: Keyboard and Mouse Actions"
+          <a href="menu_status_tool.html" title="Menu, Status Bar, Tool Bar"
              accesskey="N">next</a> |</li>
         <li class="right" >
-          <a href="bitmaps.html" title="Bitmaps"
+          <a href="dialogs.html" title="Dialogs"
              accesskey="P">previous</a> |</li>
-        <li class="nav-item nav-item-0"><a href="index.html">wxGlade 0.9.3 documentation</a> &#187;</li> 
+        <li class="nav-item nav-item-0"><a href="index.html">wxGlade 1.0.0 documentation</a> &#187;</li> 
       </ul>
     </div>  
 
@@ -63,9 +63,9 @@ You will be prompted for a class name. In the <em>Design</em> and <em>Preview</e
 </colgroup>
 <tbody valign="top">
 <tr class="row-odd"><td><strong>Properties -&gt; Common:</strong> <br/> <br/>
-Property “Class” is the name of the class that will be instantiated. <br/>
+Property “Instance Class” is the name of the class that will be instantiated. <br/>
 In this example: <span class="guilabel">wx.html.HtmlWindow</span></td>
-<td><a class="reference internal" href="_images/CustomWidgetPropertiesCommon.png"><img alt="CustomWidgetPropertiesCommon" class="align-middle" src="_images/CustomWidgetPropertiesCommon.png" style="width: 300px;" /></a></td>
+<td><a class="reference internal" href="_images/CustomWidgetPropertiesCommon.png"><img alt="Instance class: wx.html.HtmlWindow" class="align-middle" src="_images/CustomWidgetPropertiesCommon.png" style="width: 300px;" /></a></td>
 </tr>
 <tr class="row-even"><td><strong>Properties -&gt; Widget:</strong> <br/> <br/>
 The arguments for instantiation of the class.
@@ -74,7 +74,7 @@ The arguments for instantiation of the class.
 </tr>
 <tr class="row-odd"><td><strong>Properties -&gt; Code:</strong> <br/> <br/>
 Enter the import statement here, if required.</td>
-<td><a class="reference internal" href="_images/CustomWidgetPropertiesCode.png"><img alt="CustomWidgetPropertiesCode" class="align-middle" src="_images/CustomWidgetPropertiesCode.png" style="width: 300px;" /></a></td>
+<td><a class="reference internal" href="_images/CustomWidgetPropertiesCode.png"><img alt="import wx.html" class="align-middle" src="_images/CustomWidgetPropertiesCode.png" style="width: 300px;" /></a></td>
 </tr>
 </tbody>
 </table>
@@ -93,8 +93,8 @@ Enter the import statement here, if required.</td>
 <dl class="docutils">
 <dt>The files can be found in the folder <code class="docutils literal"><span class="pre">wxglade/examples/html</span></code>:</dt>
 <dd><ul class="first last simple">
-<li><a class="reference external" href="../../examples/html/html_example.wxg">matplotlib_example.wxg</a></li>
-<li><a class="reference external" href="../../examples/html/html_example.py">matplotlib_example.py</a></li>
+<li><a class="reference external" href="../../examples/html/html_example.wxg">html_example.wxg</a></li>
+<li><a class="reference external" href="../../examples/html/html_example.py">html_example.py</a></li>
 </ul>
 </dd>
 </dl>
@@ -141,7 +141,7 @@ E.g. if you want to use the matplotlib <code class="code docutils literal"><span
 <tbody valign="top">
 <tr class="row-odd"><td><strong>Properties -&gt; Common:</strong> <br/> <br/>
 The class <span class="guilabel">FigureCanvas</span> will be instantiated.</td>
-<td><a class="reference internal" href="_images/matplotlib_class.png"><img alt="Class name" class="align-middle" src="_images/matplotlib_class.png" style="width: 460px;" /></a></td>
+<td><a class="reference internal" href="_images/matplotlib_class.png"><img alt="Instance class: FigureCanvas" class="align-middle" src="_images/matplotlib_class.png" style="width: 460px;" /></a></td>
 </tr>
 <tr class="row-even"><td><strong>Properties -&gt; Widget:</strong> <br/> <br/>
 The class will be instantiated with the arguments <span class="guilabel">$parent</span>, <span class="guilabel">$id</span> and <span class="guilabel">figure</span>. <br/>
@@ -253,11 +253,11 @@ It shows also how to draw graphics primitives like lines or circles on the whole
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="bitmaps.html"
-                        title="previous chapter">Bitmaps</a></p>
+  <p class="topless"><a href="dialogs.html"
+                        title="previous chapter">Dialogs</a></p>
   <h4>Next topic</h4>
-  <p class="topless"><a href="reference.html"
-                        title="next chapter">Reference: Keyboard and Mouse Actions</a></p>
+  <p class="topless"><a href="menu_status_tool.html"
+                        title="next chapter">Menu, Status Bar, Tool Bar</a></p>
   <div role="note" aria-label="source link">
     <h3>This Page</h3>
     <ul class="this-page-menu">
@@ -286,12 +286,12 @@ It shows also how to draw graphics primitives like lines or circles on the whole
           <a href="genindex.html" title="General Index"
              >index</a></li>
         <li class="right" >
-          <a href="reference.html" title="Reference: Keyboard and Mouse Actions"
+          <a href="menu_status_tool.html" title="Menu, Status Bar, Tool Bar"
              >next</a> |</li>
         <li class="right" >
-          <a href="bitmaps.html" title="Bitmaps"
+          <a href="dialogs.html" title="Dialogs"
              >previous</a> |</li>
-        <li class="nav-item nav-item-0"><a href="index.html">wxGlade 0.9.3 documentation</a> &#187;</li> 
+        <li class="nav-item nav-item-0"><a href="index.html">wxGlade 1.0.0 documentation</a> &#187;</li> 
       </ul>
     </div>
     <div class="footer" role="contentinfo">

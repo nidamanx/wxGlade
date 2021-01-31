@@ -13,19 +13,25 @@ import wx
 
 
 
-# the SizerSlot which has the "mouse focus"; used to restore the mouse cursor if the user cancelled adding a widget
-currently_under_mouse = None
-
 _get_xpm_bitmap_re = re.compile(r'"(?:[^"]|\\")*"')
 _item_bitmaps = {}
+
+
+# handle currently focused widget ######################################################################################
 
 focused_widget = None  # the currently selected widget in GUI mode (for tree and property_panel)
 _next_focused_widget = None  # for delayed setting, to ensure that only the last call has an effect
 focused_time = 0.0  # sometimes, widgets ignore focus related events during a dead time of e.g. 50ms after setting focus
 
+flush_functions = []  # these will be called before the focused widget is set; currently only used by new_properties
+
+
 def set_focused_widget(widget, force=False, delayed=False):
     if not config.use_gui: return
     global focused_widget, _next_focused_widget, focused_time
+
+    for f in flush_functions:
+        f()
 
     if delayed:
         _next_focused_widget = widget
@@ -45,6 +51,8 @@ def set_focused_widget(widget, force=False, delayed=False):
     common.property_panel.set_widget(widget, force)
     if common.history: common.history.set_widget(widget)
     common.main.set_widget(widget)  # to update menu and toolbar
+    if common.shell:
+        common.shell.txt_path.SetValue( widget and widget.get_path() or "" )
 
     focused_time = time.time()
     if widget and widget.widget:
@@ -65,7 +73,7 @@ def _set_focused_widget(widget, force=False):
 
 def rebuild_tree(widget=None, recursive=True, focus=True, freeze=False):
     # re-build tree control for the widget and it's children; set focus to it; called after creation or modification
-    common.app_tree.saved = False
+    common.root.saved = False
     common.app_tree.build(widget, recursive, freeze)
     if focus and widget is not None:
         set_focused_widget(widget, force=widget==common.root)
@@ -254,16 +262,15 @@ def get_toplevel_parent(obj):
 
 def get_toplevel_widget(widget):
     from edit_windows import EditBase, TopLevelBase
-    from edit_sizers import Sizer, SizerSlot
-    if isinstance(widget, Sizer):
-        widget = widget.window
+    from edit_sizers import SizerSlot
+    if widget.IS_SIZER: widget = widget.window
     assert isinstance(widget, (EditBase,SizerSlot)), _("EditBase or SizerBase object needed")
     while widget and not isinstance(widget, TopLevelBase):
         widget = widget.parent
     return widget
 
 
-def check_wx_version(major, minor=0, release=0, revision=0):
+def check_wx_version_at_least(major, minor=0, release=0, revision=0):
     "returns True if the current wxPython version is at least major.minor.release"
     return wx.VERSION[:-1] >= (major, minor, release, revision)
 
@@ -293,27 +300,27 @@ def warning_message(msg, title="Warning"):
 ########################################################################################################################
 # menu helpers
 
-def append_menu_item(menu, id, text, xpm_file_or_artid=None, **kwargs): # XXX change: move id to the end of the argument list?
+def append_menu_item(menu, id, text, file_or_artid=None, **kwargs): # XXX change: move id to the end of the argument list?
     if compat.IS_CLASSIC and "helpString" in kwargs:
         kwargs["help"] = kwargs["helpString"]
         del kwargs["helpString"]
     item = wx.MenuItem(menu, id, text, **kwargs)
-    if xpm_file_or_artid is not None:
+    if file_or_artid is not None:
         path = 'msw/'  if wx.Platform == '__WXMSW__'  else  'gtk/'
         path = os.path.join(config.icons_path, path)
         bmp = None
-        if not isinstance(xpm_file_or_artid, bytes) or not xpm_file_or_artid.startswith(b'wxART_'):
+        if not isinstance(file_or_artid, bytes) or not file_or_artid.startswith(b'wxART_'):
             try:
-                bmp = _item_bitmaps[xpm_file_or_artid]
+                bmp = _item_bitmaps[file_or_artid]
             except KeyError:
-                f = os.path.join(path, xpm_file_or_artid)
+                f = os.path.join(path, file_or_artid)
                 if os.path.isfile(f):
-                    bmp = _item_bitmaps[xpm_file_or_artid] = wx.Bitmap(f, wx.BITMAP_TYPE_XPM)
+                    bmp = _item_bitmaps[file_or_artid] = wx.Bitmap(f)
                 else:
                     bmp = None
         else:
-            # xpm_file_or_artid is an id for wx.ArtProvider
-            bmp = wx.ArtProvider.GetBitmap( xpm_file_or_artid, wx.ART_MENU, (16, 16) )
+            # file_or_artid is an id for wx.ArtProvider
+            bmp = wx.ArtProvider.GetBitmap( file_or_artid, wx.ART_MENU, (16, 16) )
         if bmp is not None:
             try:
                 item.SetBitmap(bmp)
@@ -407,12 +414,12 @@ def _paste():
 def _insert():
     global focused_widget
     if not focused_widget: return
-    if not hasattr(focused_widget, "sizer") or not hasattr(focused_widget, "pos"): return
     parent = focused_widget.parent
-    if parent and parent.IS_SIZER and parent._IS_GRIDBAG: return
+    if not parent or not parent.IS_SIZER: return
+    if parent._IS_GRIDBAG: return
     #method = getattr(focused_widget.sizer, "insert_slot", None)
     method = getattr(parent, "insert_slot", None)
-    if method: method(focused_widget.pos)
+    if method: method(focused_widget.index)
 
 @restore_focus
 def _add():
@@ -423,6 +430,9 @@ def _add():
         if not hasattr(focused_widget, "sizer"): return
         method = getattr(focused_widget.sizer, "add_slot", None)
     if method: method()
+
+
+currently_under_mouse = None  # set when the mouse enters a sizer slot widget; see edit_base.Slot/SizeSlot
 
 def _cancel():
     if not common.adding_widget: return
@@ -513,8 +523,12 @@ accel_table_editors = {
     ("",  wx.WXK_ESCAPE):(_cancel, ()),
 
     ("", wx.WXK_RETURN): (drop,    ()),
-
 }
+
+if wx.Platform == "__WXMAC__":
+    # on Windows this one would go up in the hierarchy when in the Tree control
+    accel_table_editors["", wx.WXK_BACK] = (_remove, ())
+
 
 # for the palette window
 accel_table_editors_palette = {
@@ -529,8 +543,10 @@ accel_table = {
 
     ("",  wx.WXK_F2):    ((common,"main","show_tree"),            ()),
     ("",  wx.WXK_F3):    ((common,"main","show_props_window"),    ()),
-    ("",  wx.WXK_F4):    ((common,"main","show_design_window"),   ()),
+    ("",  wx.WXK_F4):    ((common,"main","show_palette"),         ()),
     ("",  wx.WXK_F5):    ((common,"main","preview"),              ()),
+    ("",  wx.WXK_F6):    ((common,"main","show_design_window"),   ()),
+    ("",  wx.WXK_F7):    ((common,"main","create_shell_window"),  ()),
 
     ("",  wx.WXK_F8):    ((common,"main","show_props_window"),    ("Common",)),
     ("C", ord('M')):     ((common,"main","show_props_window"),    ("Common",)),
@@ -597,6 +613,9 @@ def handle_key_event(event, window_type, window=None):
     if isinstance(args, str):
         args = (globals()[args],)
     wx.CallAfter(function, *args)
+
+# for key handler in palette window:
+palette_hotkeys = {"S":"Sizers"}  # key to section name
 
 
 def _reverse_dict(src):
@@ -681,22 +700,26 @@ def get_xpm_bitmap(path):
                 try:
                     data = zipfile.ZipFile(archive).read(name)
                     data = [d[1:-1] for d in _get_xpm_bitmap_re.findall(data)]
-                    bmp = wx.BitmapFromXPMData(data)
+                    bmp = wx.BitmapFromXPMData(data)  # XXX
                 except:
                     logging.exception(_('Internal Error'))
                     bmp = wx.NullBitmap
     else:
-        bmp = wx.Bitmap(path, wx.BITMAP_TYPE_XPM)
+        bmp = wx.Bitmap(path)
     return bmp
 
 
 def get_absolute_path(path, for_preview=False):
     "Get an absolute path relative to the current output directory (where the code is generated)."
+    if os.path.sep!="\\":
+        path = path.replace("\\", os.path.sep)
     if os.path.isabs(path):
         return path
     p = common.root.output_path
     if for_preview:
         p = getattr(common.root, 'real_output_path', u'')
+    if os.path.sep!="\\":
+        p = p.replace("\\", os.path.sep)
     if not os.path.isabs(p):
         # a path relative to the application filename
         appdir = os.path.dirname(common.root.filename)

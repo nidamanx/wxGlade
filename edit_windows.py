@@ -7,7 +7,7 @@ Base classes for windows used by wxGlade
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
-import re
+import logging
 import wx
 
 import new_properties as np
@@ -77,16 +77,20 @@ class EditBase(EventsMixin, edit_base.EditBase):
     This class holds the basic properties for this object.
     The properties that control the layout (i.e. the behaviour when inside a sizer) are in ManagedBase."""
     can_preview = False
-    _PROPERTIES = ["Common", "name","class", "custom_base"] # "custom_base" will be set to None or a property
+    # "class" and "custom_base" will be added for TopLevelBase, notebook, panel and splitter window
+    _PROPERTIES = ["Common", "name", "instance_class"]
     PROPERTIES = _PROPERTIES
 
     # the following will be placed on the last tab
     _EXTRA_PROPERTIES = ["Events", "events", "Code", "extracode", "extracode_pre", "extracode_post", "extraproperties"]
     EXTRA_PROPERTIES = _EXTRA_PROPERTIES
 
-    _PROPERTY_HELP={ "class": _("If you change the default value, it will be interpreted as the name "
-                                "of the subclass of the widget.\n\nHow this name affects code generation "
-                                "depends on the kind (i.e. language) of output. See the docs for more details."),
+    _PROPERTY_HELP={ "class": ("The name of the class to be generated.\n\n"
+                               "E.g. for 'ClassName':\n\n"
+                               "class ClassName:\n"
+                               "    def __init__(self, ...):\n        ...\n\n"
+                               "Toplevel windows like frames or dialogs are aways classes.\n"
+                               "Notebooks, panels or splitters can be classes."),
                      "name":_("Name of the variable for assigning the reference to the created widget instance.\n\n"
                               "(Valid: alphanumeric characters and underscore, also minus, but not at the beginning)\n"
                               "If the config setting is to have unique names, a non-unique name will be indicated"
@@ -97,6 +101,10 @@ class EditBase(EventsMixin, edit_base.EditBase):
                                       "with the same parameters as this class, while for the others the default\n"
                                       "constructor will be used. You should probably not use this if \n"
                                       "overwrite existing sources is not set."),
+                     "instance_class":("Instead of e.g. wx.TextCtrl you may specify a compatible class here,\n"
+                                "e.g. 'mycontrols.MyTextCtrl'.\n\n"
+                                "You need to ensure that the class is available.\n"
+                                "Add required import code to 'Extra (import) code for this widget' on the Code tab."),
                      "extracode":"This code will be inserted at the beginning of the file.\n"
                                  "Use this to add e.g. import statements.\n\n"
                                  "The code will be added to the section marked with '# begin wxGlade: extracode'",
@@ -108,22 +116,28 @@ class EditBase(EventsMixin, edit_base.EditBase):
                         "extracode":"Extra (import) code for this widget",
                         "extracode_pre":"Code to be inserted before",
                         "extracode_post":"Code to be inserted after"}
-    def __init__(self, name, klass, parent, custom_class=True, pos=None):
-        edit_base.EditBase.__init__(self, name, parent, pos)
+    def __init__(self, name, parent, index, klass=None, instance_class=None):
+        edit_base.EditBase.__init__(self, name, parent, index)
 
         # initialise instance properties
-        self.classname = klass
-        self.klass = klass_p = np.ClassProperty(klass, name="class") # Name of the object's class: read/write or read only
-        # If True, the user can change the value of the 'class' property:
-        self.custom_class = custom_class
-        # only for StatusBar, ToolBar and also non-standalone MenuBar it's False
-        if not custom_class: klass_p.readonly = True
+        if "class" in self.PROPERTIES:
+            if self.IS_TOPLEVEL:
+                # always a class
+                self.klass = klass_p = np.ClassProperty(klass, name="class")
+            else:
+                # optionally a class
+                self.klass = klass_p = np.ClassPropertyD(klass, name="class")
+                if klass: klass_p.deactivated = False
 
-        if getattr(self, '_custom_base_classes', False):
-            # for notebook, panel and splitter window
-            self.custom_base = np.TextPropertyD("", multiline=False, default_value=None)
-        else:
-            self.custom_base = None
+        if "instance_class" in self.PROPERTIES:
+            self.instance_class = instance_class_p = np.InstanceClassPropertyD(instance_class, default_value=self.WX_CLASS)
+            if instance_class is not None and instance_class!=self.WX_CLASS:
+                instance_class_p.deactivated = False
+
+        if "custom_base" in self.PROPERTIES:
+            # for TopLevelBase, notebook, panel and splitter window
+            self.custom_base = custom_base_p = np.BaseClassesPropertyD(default_value=self.WX_CLASS)
+            if klass_p.deactivated: custom_base_p.set_blocked()
 
         self.extracode       = np.CodeProperty()
         self.extracode_pre   = np.CodeProperty()
@@ -132,10 +146,36 @@ class EditBase(EventsMixin, edit_base.EditBase):
 
         EventsMixin.__init__(self)
 
+    def get_instantiation_class(self, formatter=None, cls_formatter=None, preview=False):
+        # e.g. klass = obj.get_instantiation_class(self.cn, self.cn_class)
+        if preview:
+            if self.IS_TOPLEVEL:
+                if cls_formatter is not None: return cls_formatter(self.klass)
+                return self.klass
+            if formatter is not None:
+                return formatter(self.WX_CLASS)
+            return self.WX_CLASS
+
+        if self.check_prop("instance_class"):
+            return self.instance_class
+        if self.check_prop_truth("class"):
+            if cls_formatter is not None: return cls_formatter(self.klass)
+            return self.klass
+        if formatter is not None:
+            return formatter(self.WX_CLASS)
+        return self.WX_CLASS
+
     def get_property_handler(self, prop_name):
         """Returns a custom handler function for the property 'prop_name', used when loading this object from a XML file.
         handler must provide three methods: 'start_elem', 'end_elem' and 'char_data'"""
         return EventsMixin.get_property_handler(self, prop_name)
+
+    def _properties_changed(self, modified, actions):
+        edit_base.EditBase._properties_changed(self, modified, actions)
+        # enable "custom_base" property only if "class" is active
+        class_p = self.properties.get("class")
+        if class_p and (not modified or "class" in modified) and class_p.deactivated is not None:
+            self.properties["custom_base"].set_blocked( block=class_p.deactivated or not class_p.value )
 
     # context menu #####################################################################################################
     def popup_menu(self, event, pos=None):
@@ -182,7 +222,7 @@ class EditBase(EventsMixin, edit_base.EditBase):
         return menu
 
     def preview_parent(self, *args):
-        widget = self.toplevel_parent_window # misc.get_toplevel_widget(self)
+        widget = self.toplevel_parent # misc.get_toplevel_widget(self)
         if widget is not None:
             wx.CallAfter( widget.preview )  # direct call would result in crash
 
@@ -199,8 +239,10 @@ class EditBase(EventsMixin, edit_base.EditBase):
         # only with slots before/after
         if typename=="bitmap":
             return (False, "No bitmaps can be pasted here")
-        if typename is not None and typename=="window" or widget.IS_TOPLEVEL:
+        if (typename is not None and typename=="window") or (widget and widget.IS_TOPLEVEL):
             return (False,"No toplevel objects can be pasted here")
+        if self.parent.IS_SIZER and not self.parent._can_add_insert_slots():
+            return (False, "Slot is populated already")
         return ("Slot",None)
 
     def check_drop_compatibility(self):
@@ -230,8 +272,9 @@ class EditBase(EventsMixin, edit_base.EditBase):
 
     @contextlib.contextmanager
     def frozen(self):
-        if self.widget:
+        if config.use_freeze_thaw and self.widget:
             toplevel = self.widget.GetTopLevelParent()
+            if config.debugging: print("Freezing", toplevel)
             toplevel.Freeze()
         else:
             toplevel = None
@@ -243,13 +286,15 @@ class EditBase(EventsMixin, edit_base.EditBase):
                     self.widget.Refresh()
                     #self.widget.SendSizeEvent()  # would work most of the time
                     toplevel.SendSizeEvent()  # would work as well
+                if config.debugging: print("Thawing", toplevel)
                 toplevel.Thaw()
 
 
 class WindowBase(EditBase):
     """Extends EditBase with the addition of the common properties available to
     almost every window: size, background and foreground colours, and font"""
-    _PROPERTIES = ["id", "size", "background", "foreground", "font", "tooltip", "disabled", "focused", "hidden"]
+    _PROPERTIES = ["id", "size",
+                   "background", "foreground", "font", "tooltip", "disabled", "focused", "hidden"]
     PROPERTIES = EditBase.PROPERTIES + _PROPERTIES
 
     _PROPERTY_HELP = {
@@ -287,8 +332,8 @@ class WindowBase(EditBase):
     IS_WINDOW = True
     CHILDREN = None  # sizer or something else
 
-    def __init__(self, name, klass, parent, pos=None):
-        EditBase.__init__(self, name, klass, parent, pos=pos)
+    def __init__(self, name, parent, index, klass, instance_class=None):
+        EditBase.__init__(self, name, parent, index, klass, instance_class)
 
         self.window_id = np.TextPropertyD( "wxID_ANY", name="id", default_value=None )
         self.size      = np.SizePropertyD( "-1, -1", default_value="-1, -1" )
@@ -320,44 +365,26 @@ class WindowBase(EditBase):
 
         self.toplevel_parent.parent.check_codegen(self)
 
-    def finish_widget_creation(self, *args, **kwds):
-        # store the actual values of foreground, background and font as default, if the property is deactivated later
-        background_p = self.properties["background"]
-        foreground_p = self.properties["foreground"]
- 
-        fnt = self.widget.GetFont()
-        if not fnt.IsOk():
-            fnt = wx.SystemSettings_GetFont(wx.SYS_DEFAULT_GUI_FONT)
-        self._original['font'] = fnt
- 
-        size_p = self.properties['size']
-        if size_p.is_active():
-            self.set_size()
-        else:
-            # this is a dirty hack: in previous versions <=0.7.2 self.set_size is practically always called
-            # set_size then calls self.sizer.set_item(item, pos)
-            # without calling this here, e.g. an empty notebook page is not created!
-            # XXX this should be made more straightforward
-            if "pos" in self.properties and hasattr(self.parent, "item_properties_modified"):
-                #self.sizer.set_item(self.pos)
-                self.parent.item_properties_modified(self)
-            size_p.set('%s, %s' % tuple(self.widget.GetSize()))
- 
-        if background_p.is_active(): self.widget.SetBackgroundColour(self.background)
-        if foreground_p.is_active(): self.widget.SetForegroundColour(self.foreground)
-
-        font_p = self.properties.get('font')
-        if font_p and font_p.is_active():
-            self._set_font()
-
-        EditBase.finish_widget_creation(self)
-
+    def finish_widget_creation(self, level):
         self.widget.Bind(wx.EVT_SIZE, self.on_size)
-        # after setting various Properties, we must Refresh widget in order to see changes
-        self.widget.Refresh()
-        #self.widget.Bind(wx.EVT_KEY_DOWN, misc.on_key_down_event)
+
+        # store the actual values of font as default, if the property is deactivated later
+        fnt = self.widget.GetFont()
+        if not fnt.IsOk(): fnt = wx.SystemSettings_GetFont(wx.SYS_DEFAULT_GUI_FONT)
+        self._original['font'] = fnt.GetNativeFontInfoDesc()
+
+        if self.check_prop_truth("font"): self._set_font()
+        if self.check_prop_truth("wrap"): self.widget.Wrap(self.wrap)
+        if self.check_prop("size"):       self.set_size("size", "SetSize")
+        if self.check_prop("min_size"):   self.set_size("min_size", "SetMinSize")
+        if self.check_prop("max_size"):   self.set_size("max_size", "SetMaxSize")
+        if self.check_prop("background"): self.widget.SetBackgroundColour(self.background)
+        if self.check_prop("foreground"): self.widget.SetForegroundColour(self.foreground)
+
+        EditBase.finish_widget_creation(self, level)
+
         self.widget.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
-    
+
     def on_char_hook(self, event):
         misc.handle_key_event(event, "design")
 
@@ -377,20 +404,17 @@ class WindowBase(EditBase):
                 if child: self._reparent_widget(child)
 
     def recreate_widget(self):
-        "currently used by EditTopLevelPanel to re-create after switch between ScrolledWindow and Panel"
+        "re-create widget and re-parent children"
+        # currently used by panel on modification of 'scrolled' to switch between ScrolledWindow and Panel
         old_widget = self.widget
-        size = self.widget.GetSize()
         with self.frozen():
-            self.create_widget()
-            self.widget.SetSize(size)
+            self.parent.destroying_child_widget(self, self.index)
+            self.create_widget()  # this is not recursive
+            if self.IS_TOPLEVEL_WINDOW: self.widget.SetSize(size)   # do this for IS_TOPLEVEL only?
             old_widget.Hide()
             if self.sel_marker:
                 self.sel_marker.Destroy()
                 self.sel_marker = None
-
-            if self.parent.IS_SIZER:
-                self.parent.widget.Detach(old_widget)
-                # finish_widget_creation below will add the new widget to the sizer; alternatively add it here
 
             sizer = old_widget.GetSizer()
             if sizer:
@@ -398,22 +422,41 @@ class WindowBase(EditBase):
                 old_widget.SetSizer(None, False)
                 sizer.SetContainingWindow(self.widget)
                 self._reparent_widget(sizer)
-                #sizer.Layout()
             else:
                 for child in self.widget.GetChildren():
                     # actually, for now a panel may only have a sizer as child, so this code is not executed
                     self._reparent_widget(child)
-            if old_widget in common.design_windows:
-                common.design_windows.remove(old_widget)
-                common.design_windows.append(self.widget)
             compat.DestroyLater(old_widget)
-            self.finish_widget_creation()  # this will add the new widget to the sizer (default argument re_add=True)
+            self.finish_widget_creation(0)
+            self.parent.child_widget_created(self, 0)
+
+    def recreate_widget2(self):
+        "destroy widget (incl. children) and recursively re-create, typically when a style can't be changed dynamically"
+        # restore position and size for toplevels; focus else
+        if self.IS_TOPLEVEL:
+            rect = self.widget.GetTopLevelParent().GetRect()
+        else:
+            focused = misc.focused_widget is self
+
+        with self.frozen():
+            self.parent.destroying_child_widget(self, self.index)
+            self.destroy_widget(0, later=True)
+            self.parent.destroyed_child_widget()
+
+            self.create()
+
+            # restore position and size for toplevels; focus else
+            if self.IS_TOPLEVEL:
+                self.widget.GetTopLevelParent().SetRect(rect)
+            elif focused:
+                misc.focused_widget = self
+                if self.sel_marker: self.sel_marker.Show(True)
 
     def on_size(self, event):
         "Update the value of the 'size' property"
         if not self.widget: return  # this can happen on destruction
-        if event.GetEventObject() is None: return
         event.Skip()
+        if event.GetEventObject() is None: return
         try:
             prop_size = self.properties['size']
 
@@ -452,6 +495,11 @@ class WindowBase(EditBase):
         except KeyError:
             logging.exception(_('Internal Error'))
 
+        # for a Panel this is required, while it's not required for a Frame:
+        if self.CHILDREN==-1 and self.children and self.children[0].IS_SLOT:
+            # make the slot filling the whole window
+            self.children[0].widget.SetSize(self.widget.GetClientSize())
+
     def on_child_pasted(self):
         if not self.widget: return
         if self.parent.WX_CLASS=="wxSplitterWindow":
@@ -467,8 +515,14 @@ class WindowBase(EditBase):
     def _set_font(self):
         if not self.widget: return
         font_p = self.properties["font"]
-        if not font_p.is_active(): 
-            font = self._original["font"]
+        if not font_p.is_active():
+            try:
+                font = wx.Font()
+                font.SetNativeFontInfo( self._original["font"] )
+            except TypeError:
+                # wxPython 2.8
+                font = self.widget.GetFont()
+                font.SetNativeFontInfoFromString( self._original["font"] )
         else:
             font = font_p.value
             families = np.FontProperty.font_families_to
@@ -477,17 +531,34 @@ class WindowBase(EditBase):
             font = wx.Font( font[0], families[font[1]], styles[font[2]], weights[font[3]], font[4], font[5])
 
         self.widget.SetFont(font)
-        if hasattr(self.parent, "set_item_best_size") and not self.properties["size"].is_active():
-            self.parent.set_item_best_size(self)
 
-    def set_size(self):
-        if not self.widget: return
-        size_p = self.properties["size"]
-        if not size_p.is_active(): return
+    def set_size(self, prop_name, method="SetSize"):
+        size_p = self.properties[prop_name]
+        if not self.widget or not size_p.is_active(): return
         size = size_p.get_size(self.widget)
-        self.widget.SetSize(size)
-        if hasattr(self.parent, "set_item_best_size"):
-            self.parent.set_item_best_size(self, size=size)
+        getattr(self.widget, method)(size)
+        if self.parent.IS_SIZER and method=="SetSize":
+            self.parent.set_item_best_size(self, size=size)  # actually, this will call SetItemMinSize
+
+    def _properties_changed(self, modified, actions):
+        # XXX check whether actions are required
+        if modified and "size" in modified and self.widget:
+            self.set_size("size", "SetSize")
+        if modified and "min_size" in modified and self.widget:  # only used by frame
+            self.set_size("min_size", "SetMinSize")
+        if modified and "max_size" in modified and self.widget:
+            self.set_size("max_size", "SetMaxSize")
+        if not modified or "background" in modified and self.widget:
+            self.widget.SetBackgroundColour(self.properties["background"].get_color())
+            actions.add("refresh")
+        if not modified or "foreground" in modified and self.widget:
+            self.widget.SetForegroundColour(self.properties["foreground"].get_color())
+            actions.add("refresh")
+        if "font" in modified and self.widget:
+            self._set_font()
+            actions.add("layout")
+
+        EditBase._properties_changed(self, modified, actions)
 
     def get_property_handler(self, name):
         if name == 'font':
@@ -496,22 +567,25 @@ class WindowBase(EditBase):
             return ExtraPropertiesPropertyHandler(self)
         return EditBase.get_property_handler(self, name)
 
-    def properties_changed(self, modified=None):
-        # XXX check whether actions are required
-        refresh = False
-        if modified and "size" in modified and self.widget:
-            self.set_size()
-        if not modified or "background" in modified and self.widget:
-            self.widget.SetBackgroundColour(self.properties["background"].get_color())
-            refresh = True
-        if not modified or "foreground" in modified and self.widget:
-            self.widget.SetForegroundColour(self.properties["foreground"].get_color())
-            refresh = True
-        if "font" in modified and self.widget:
-            self._set_font()
-        if refresh: self.widget.Refresh()
-
-        EditBase.properties_changed(self, modified)
+    def properties_changed(self, modified):
+        actions = EditBase.properties_changed(self, modified)
+        # widget properties modified; trigger updates
+        if self.widget:
+            if config.debugging: print("Actions", actions)
+            if "recreate2" in actions:
+                self.recreate_widget2()
+                self.layout()
+            elif "recreate" in actions:
+                self.recreate_widget()
+                self.layout()
+            elif "refresh" in actions:
+                self.widget.Refresh()
+            if "layout" in actions:
+                self.layout()
+            if "sizeevent" in actions:
+                wx.SafeYield()  # required for gtk when e.g. increasing the font size of a label or button
+                compat.wxWindow_SendSizeEventToParent(self.widget)
+        return actions
 
     def get_properties(self, without=set()):
         if "foreground" in self.properties:
@@ -520,39 +594,44 @@ class WindowBase(EditBase):
         return EditBase.get_properties(self, without)
 
 
-
 class ManagedBase(WindowBase):
     """Base class for every window managed by a sizer.
 
     Extends WindowBase with the addition of properties relative to the layout of the window:
     proportion/option, flag, and border."""
 
-    _PROPERTIES = ["Layout","pos", "span", "proportion", "border", "flag"]
-    SIZER_PROPERTIES = ["pos","proportion","border","flag"]
+    _PROPERTIES = ["Layout", "span", "proportion", "border", "flag"]
+    SIZER_PROPERTIES = ["proportion","border","flag"]
     PROPERTIES = WindowBase.PROPERTIES + _PROPERTIES
+    np.insert_after(PROPERTIES, "size", "max_size")
 
-    _PROPERTY_HELP = { "border": _("Border width, if enabled below"),  "pos": _("Sizer slot") }
+    _PROPERTY_HELP = { "border": "Border width, if enabled below",
+                       "max_size": "Indicate maximum size to the containing sizer."}
+                       
     _PROPERTY_LABELS = {"option": "Proportion" }
+
+    #CHILDREN = 0  # most widgets have no children
 
     ####################################################################################################################
 
-    def __init__(self, name, klass, parent, pos):
-        WindowBase.__init__(self, name, klass, parent, pos)
+    def __init__(self, name, parent, index, instance_class=None, class_=None):
+        WindowBase.__init__(self, name, parent, index, class_, instance_class)
         # if True, the user is able to control the layout of the widget
         # inside the sizer (proportion, borders, alignment...)
         self._has_layout = parent.IS_SIZER
+        if self._has_layout:
+            self.max_size  = np.SizePropertyD( "-1, -1", default_value="-1, -1" )
 
         # attributes to keep the values of the sizer properties
-        if pos is None:
+        if index is None:
             if self in self.parent.children:
-                pos = self.parent.children.index(self)
+                index = self.parent.children.index(self)
             else:
-                pos = len(self.parent.children) - 1
-        self.pos        = np.LayoutPosProperty(pos)            # position within the sizer, 0-based
+                index = len(self.parent.children) - 1
         self.span       = np.LayoutSpanProperty((1,1))         # cell spanning for GridBagSizer
         self.proportion = np.LayoutProportionProperty(0)       # item growth in sizer main direction
         self.border     = np.SpinProperty(0, immediate=True)   # border width
-        self.flag       = np.ManagedFlags(wx.ADJUST_MINSIZE)   # alignment, border; expansion in other dir.
+        self.flag       = np.ManagedFlags(0)                   # alignment, border; expansion in other dir.
 
     def check_defaults(self):
         # apply default border if set in preferences; called explicitely from the interactive builder functions
@@ -562,16 +641,13 @@ class ManagedBase(WindowBase):
         if not flag_p.value_set.intersection(flag_p.FLAG_DESCRIPTION["Border"]):
             flag_p.add("wxALL", notify=False)
 
-    def finish_widget_creation(self, sel_marker_parent=None, re_add=True):
+    def finish_widget_creation(self, level, sel_marker_parent=None, re_add=True):
         if sel_marker_parent is None: sel_marker_parent = self.parent_window.widget
         self.sel_marker = misc.SelectionMarker(self.widget, sel_marker_parent)
-        WindowBase.finish_widget_creation(self)
+        WindowBase.finish_widget_creation(self, level)
         self.widget.Bind(wx.EVT_LEFT_DOWN, self.on_set_focus)
         self.widget.Bind(wx.EVT_MOUSE_EVENTS, self.on_mouse_events)
         self.widget.Bind(wx.EVT_MOVE, self.on_move)
-        if re_add and hasattr(self.parent, "_add_item"): # self.parent.IS_SIZER:
-            # re-add the item to update it; this is not to be done when a widget is replaced due to style change
-            self.parent._add_item( self, self.pos )
 
     def update_view(self, selected):
         if self.sel_marker: self.sel_marker.Show(selected)
@@ -589,9 +665,12 @@ class ManagedBase(WindowBase):
             size_p.set(old)
         if self.sel_marker: self.sel_marker.update()
 
-    def properties_changed(self, modified):
-        WindowBase.properties_changed(self, modified)
+    def _properties_changed(self, modified, actions):
+        WindowBase._properties_changed(self, modified, actions)
         p = self.properties["flag"]
+        if modified and "flag" in modified and self.parent.IS_SIZER:
+            p._check_value()
+
         if "flag" in modified and "wxSHAPED" in p.value_set and self.proportion:
             self.properties["proportion"].set(0, notify=False)
         elif "option" in modified and self.proportion and "wxSHAPED" in p.value_set:
@@ -608,47 +687,56 @@ class ManagedBase(WindowBase):
             if self.parent.WX_CLASS=="wxGridBagSizer" and (not modified or "span" in modified) and self.span!=(1,1):
                 # check span range, if pasted item would span more rows/cols than available
                 span_p = self.properties["span"]
-                max_span = self.sizer.check_span_range(self.pos, *span_p.value)
+                max_span = self.sizer.check_span_range(self.index, *span_p.value)
                 max_span = ( min(span_p.value[0],max_span[0]), min(span_p.value[1],max_span[1]) )
                 if max_span!=span_p.value:
                     span_p.set(max_span, notify=False)
             if self.parent.IS_SIZER:
                 self.sizer.item_properties_modified(self, modified)
+                actions.add("layout")
 
         # if an item inside a flex grid sizer is set to EXPAND, inform the user if row and col are not growable
         if modified and "flag" in modified and self.parent.IS_SIZER and "growable_rows" in self.parent.properties:
             if p.previous_value is not None and "wxEXPAND" in p.value_set and not "wxEXPAND" in p.previous_value:
-                row, col = self.parent._get_row_col(self.pos)
+                row, col = self.parent._get_row_col(self.index)
                 if not row in self.parent.growable_rows and not col in self.parent.growable_cols:
                     wx.CallAfter(self.parent.ask_growable, row,col)
 
-    def _set_widget_best_size(self):
-        # called when the widget has been modified and this might affect the automatic size
-        if not self.widget: return
-        size_p = self.properties["size"]
-        if size_p.is_active() and size_p.get() != "-1, -1": return # fixed size
-        # find best size, apply; display if size property is not active
-        self.widget.SetMinSize( (-1,-1) )  # otherwise the size would often not be reduced, e.g. for buttons
-        if hasattr(self.parent, "set_item_best_size"):
-            best_size = self.widget.GetBestSize()
-            self.parent.set_item_best_size(self, best_size)
-            if not size_p.is_active():
-                size_p.set( best_size )
+        #if modified and self.widget:
+            #wx.SafeYield()  # required for gtk when e.g. increasing the font size of a label or button
+            #self.widget.SendSizeEventToParent()
+        if modified: actions.add("sizeevent")
 
-    def destroy_widget(self):
-        if self.sel_marker:
+    #def _set_widget_best_size(self):
+        ## called when the widget has been modified and this might affect the automatic size
+        #if not self.widget: return
+        #size_p = self.properties["size"]
+        #if size_p.is_active() and size_p.get() != "-1, -1": return # fixed size
+        ## find best size, apply; display if size property is not active
+        #self.widget.SetMinSize( (-1,-1) )  # otherwise the size would often not be reduced, e.g. for buttons
+        
+        #print("skipping SET BESET SIZE")
+        ##if hasattr(self.parent, "set_item_best_size"):
+            ##best_size = self.widget.GetBestSize()
+            ##print("SET BESET SIZE", best_size)
+            ##self.parent.set_item_best_size(self, best_size)
+            ##if not size_p.is_active():
+                ##size_p.set( best_size )
+
+    def destroy_widget(self, level, later=True):
+        if self.widget and self.sel_marker:
             self.sel_marker.Destroy()  # destroy the selection markers
             self.sel_marker = None
-        WindowBase.destroy_widget(self)
+        WindowBase.destroy_widget(self, level, later)
 
     def _remove(self):
         "don't set focus"
-        return self.parent._free_slot(self.pos)
+        return self.parent._free_slot(self.index)
 
     def remove(self):
-        # entry point from GUI?
-        with self.frozen():
-            slot = self._remove()
+        # entry point from GUI
+        #with self.frozen():  # this does not work on mac os: when deleting a panel notebook page, it will remain black
+        slot = self._remove()
         misc.rebuild_tree(slot, recursive=False)
 
     def on_mouse_events(self, event):
@@ -658,7 +746,6 @@ class ManagedBase(WindowBase):
             clipboard.begin_drag(window, self)
             return
         event.Skip()
-
 
 
 class PreviewMixin(object):
@@ -683,6 +770,9 @@ class PreviewMixin(object):
             self.preview_widget = common.root.preview(self, self._preview_position)
             if self.preview_widget:
                 new_label = _('Close Preview')
+            if wx.Platform == '__WXGTK__':  # otherwise e.g. preview of Test_Editing2 fails sometimes
+                wx.SafeYield()
+                compat.wxWindow_SendSizeEventToParent(self.preview_widget)
         else:
             self._preview_position = self.preview_widget.GetPosition()  # remember position
             self.preview_widget.Close()
@@ -711,24 +801,21 @@ class DesignButtonProperty(np.ActionButtonProperty):
 
 class TopLevelBase(WindowBase, PreviewMixin):
     "Base class for every non-managed window (i.e. Frames, Dialogs and TopLevelPanel)"
-    _custom_base_classes = True
     PROPERTIES = WindowBase.PROPERTIES + ["design","preview"]
+    np.insert_after(PROPERTIES, "name", "class", "custom_base")
 
     IS_TOPLEVEL = True
     IS_TOPLEVEL_WINDOW = True  # will be False for TopLevelPanel and MDIChildFrame
-    CAN_BE_CLASS = True
     CHILDREN = 1  # a sizer or a widget
 
     _PROPERTY_HELP={ "extracode_pre": "This code will be inserted at the beginning of the constructor.",
                      "extracode_post":"This code will be inserted at the end of the constructor." }
 
-    def __init__(self, name, klass, parent, title=None):
-        WindowBase.__init__(self, name, klass, parent, pos=None)
+    def __init__(self, name, parent, klass, title=None):
+        WindowBase.__init__(self, name, parent, None, klass)
         self._oldname = name
-        self.has_title = "title" in self.PROPERTIES
-        if self.has_title:
-            if title is None: title = self.name
-            self.title = np.TextProperty(title)
+        if "title" in self.PROPERTIES:
+            self.title = np.TextProperty(title if title is not None else name)
         PreviewMixin.__init__(self)
         self.design = DesignButtonProperty(self.on_design_button)
 
@@ -740,42 +827,46 @@ class TopLevelBase(WindowBase, PreviewMixin):
         if self.children[0].IS_SIZER: return self.children[0]
         return None
 
-    def create_widgets(self):
+    def create(self):
         # creates/shows the widget of the given toplevel node and all its children
         wx.BeginBusyCursor()
         try:
-            if not self.widget:
-                self.create_widget()
-                self.finish_widget_creation()
-                if self.CHILDREN:  # not for MenuBar, ToolBar
-                    self.drop_target = clipboard.DropTarget(self)
-                    self.widget.SetDropTarget(self.drop_target)
-
-            with self.frozen():
-                for c in self.get_all_children():
-                    c.create_widgets()
-                self.post_load()  # SizerBase uses this for toplevel sizers; also EditNotebook
-                self.create()
-                if self.widget.TopLevel:
-                    self.widget.Show()
-                else:
-                    self.widget.GetParent().Show()
-
-                self.widget.Raise()
-                # set the best size for the widget (if no one is given)
-                if self.check_prop('size'):
-                    if self.sizer:  # self.sizer is the containing sizer, i.e. the parent
-                        self.sizer.fit_parent()
-                    elif self.WX_CLASS=="wxPanel" and self.children:
-                        wx.Yield()  # by now, there are probably many EVT_SIZE in the queue
-                        self.children[0].fit_parent()
+            WindowBase.create(self)
         finally:
             wx.EndBusyCursor()
+        # from old code:
+        # below, probably check_prop should be False
+        ## set the best size for the widget (if no one is given)
+        #if not self.check_prop('size'):
+            #if self.sizer:  # self.sizer is the containing sizer, i.e. the parent
+                #self.sizer.fit_parent()
+            #elif self.WX_CLASS=="wxPanel" and self.children:
+                #wx.Yield()  # by now, there are probably many EVT_SIZE in the queue
+                #self.children[0].fit_parent()
 
-    def finish_widget_creation(self, *args, **kwds):
-        WindowBase.finish_widget_creation(self)
+        self.widget.GetTopLevelParent().Show()
+        # SafeYield and SetFocus are required for e.g. Ubuntu w. Python 3.8 and wxPython 4.0.7
+        # see file SIMPLIFICATIONS\Tests_full.wxg where the first frame will not be layouted
+        wx.SafeYield()
+        self.widget.Raise()
+        self.widget.SetFocus()
+
+    def show_widget(self):
+        if not self.widget:
+            self.create()
+        else:
+            self.widget.GetTopLevelParent().Show()  # GetTopLevelParent is required for e.g. Panel
+            self.widget.GetTopLevelParent().Raise()
+
+    def finish_widget_creation(self, level):
+        WindowBase.finish_widget_creation(self, level)
+
+        if self.CHILDREN:  # not for MenuBar, ToolBar
+            self.drop_target = clipboard.DropTarget(self)
+            self.widget.SetDropTarget(self.drop_target)
+
         self.widget.SetMinSize = self.widget.SetSize
-        if self.has_title:
+        if self.check_prop("title"):
             self.widget.SetTitle( misc.design_title(self.title) )
         elif hasattr(self.widget, 'SetTitle'):
             self.widget.SetTitle(misc.design_title(self.name))
@@ -786,17 +877,17 @@ class TopLevelBase(WindowBase, PreviewMixin):
             # MSW isn't smart enough to avoid overlapping windows, so at least move it away from the 3 wxGlade frames
             self.widget.Center()
 
-    def create(self):
-        WindowBase.create(self)
-        if wx.Platform == '__WXMSW__' and "size" in self.properties:
-            # more than ugly, but effective hack to properly layout the window on Win32
-            if self.properties['size'].is_active():
-                w, h = self.widget.GetSize()
-                self.widget.SetSize((-1, h+1))
-                self.widget.SetSize((-1, h))
-            elif len(self.children)==1 and self.children[0] is not None and self.children[0].IS_SIZER:
-                self.children[0].fit_parent()
-        common.design_windows.append(self.widget)
+    def destroy_widget(self, level, later=True):
+        if self.preview_widget is not None:
+            self.preview_widget.Unbind(wx.EVT_CHAR_HOOK)
+            compat.DestroyLater(self.preview_widget)
+            self.preview_widget = None
+        WindowBase.destroy_widget(self, level, later)
+
+    def hide_widget(self, event=None):
+        self.widget.Hide()  # just hide, don't close
+        common.app_tree.Collapse(self.item)
+        self.design.update_label()
 
     def duplicate(self, *args):
         clipboard.copy(self)
@@ -854,12 +945,13 @@ class TopLevelBase(WindowBase, PreviewMixin):
         if widget is not None:
             if widget.WX_CLASS=="wxMenuBar":   typename = "menubar"
             elif widget.WX_CLASS=="wxToolBar": typename = "toolbar"
+            elif widget.WX_CLASS=="wxStatusBar": typename = "statusbar"
 
-        if typename in ("menubar", "toolbar"):
+        if typename in ("menubar", "toolbar", "statusbar"):
             if not typename in self.properties:
-                return (False, "Can't set a menu or tool bar")
+                return (False, "Can't set a menu, tool or status bar")
             if self.check_prop(typename) and getattr(self, typename):
-                return (False, 'Menu or tool bar already set for this window')
+                return (False, 'Menu, tool or status bar already set for this window')
             return (True, None)
 
         if widget and widget.IS_TOPLEVEL:
@@ -920,11 +1012,6 @@ class TopLevelBase(WindowBase, PreviewMixin):
         return (True, None)
         #return (False, 'Only sizers can be added here')
 
-    def hide_widget(self, event=None):
-        self.widget.Hide()  # just hide, don't close
-        common.app_tree.Collapse(self.item)
-        self.design.update_label()
-
     def on_size(self, event):
         WindowBase.on_size(self, event)
         if len(self.children)!=1 or self.children[0] is None or not self.children[0].widget: return
@@ -934,35 +1021,16 @@ class TopLevelBase(WindowBase, PreviewMixin):
             # resize element to fill full space; SendSizeEvent in frozen is not enough
             size = self.widget.GetClientSize()
             child.widget.SetSize( size )
-        elif child.IS_SIZER:
-            child.refresh()
 
-    def properties_changed(self, modified):
-        if self.has_title and (not modified or "title" in modified):
-            if self.widget:
-                self.widget.SetTitle( misc.design_title(self.title) )
-            if common.app_tree:
-                common.app_tree.refresh(self)
+    def _properties_changed(self, modified, actions):
+        if "title" in self.properties and (not modified or "title" in modified):
+            if self.widget: self.widget.SetTitle( misc.design_title(self.title) )
 
         if not modified or "name" in modified and (self.name!=self._oldname):
             self.parent.update_top_window_name(self._oldname, self.name)
             self._oldname = self.name
 
-        WindowBase.properties_changed(self, modified)
-
-    def delete(self, *args):
-        if self.preview_widget is not None:
-            self.preview_widget.Unbind(wx.EVT_CHAR_HOOK)
-            compat.DestroyLater(self.preview_widget)
-            self.preview_widget = None
-        widget = self.widget
-        WindowBase.delete(self)
-        if widget is not None and widget in common.design_windows: common.design_windows.remove(widget)
-
-    def remove(self):
-        if self.IS_TOPLEVEL_WINDOW:
-            self.parent.remove_top_window(self.name)
-        WindowBase.remove(self)
+        WindowBase._properties_changed(self, modified, actions)
 
     def _find_widget_by_pos(self, w, x,y, level=1):
         "helper for find_widget_by_pos; w is the parent window/widget"
@@ -971,7 +1039,7 @@ class TopLevelBase(WindowBase, PreviewMixin):
             x0,y0,width,height = w.GetRect()
             return self._find_widget_by_pos(page, x-x0,y-y0, level+1)
         ret = []
-        # check the widget itself
+        # check the widget itself; except for the toplevel, this is redundant
         if w.IsTopLevel():  # for a Frame, Rect is the screen position
             x0,y0,width,height = w.GetClientRect()
         else:
@@ -994,8 +1062,7 @@ class TopLevelBase(WindowBase, PreviewMixin):
     def find_editor_by_pos(self, x,y):
         "find the Edit item at a given position"
         if self.widget is None: return None
-        x0,y0,width,height = self.widget.ClientRect
-        found = self._find_widget_by_pos(self.widget, x-x0,y-y0)
+        found = self._find_widget_by_pos(self.widget, x,y)
         while found:
             w = self._find_editor( found.pop(-1), self )
             if w: return w
@@ -1028,14 +1095,12 @@ class EditStylesMixin(np.PropertyOwner):
 
     style_set: Set of selected styles (strings)
     style_names: List of style names
-    widget_writer: Widget code writer (wcodegen.BaseWidgetWriter)
-
-    """
+    widget_writer: Widget code writer (wcodegen.BaseWidgetWriter)"""
     codegen = None             # Code generator class; see: codegen.BaseLangCodeWriter
     update_widget_style = True # Flag to update the widget style if a style is set using set_style()
     recreate_on_style_change = False
 
-    def __init__(self, klass='', styles=[]):
+    def __init__(self, styles=[]):
         """Initialise instance
 
         klass: Name of the wxWidget klass
@@ -1043,20 +1108,11 @@ class EditStylesMixin(np.PropertyOwner):
 
         self.style_names = []
 
-        # This class needs the wxWidget class to get the proper widget
-        # writer. Mostly the wxWidget class is stored in self.base. If
-        # not you've to set manually using constructors 'klass' parameter.
-        # The 'klass' parameter will preferred used.
-        klass = klass or self.WX_CLASS
-
-        # set code generator only once per class
         if not self.codegen:
-            self.codegen = common.code_writers['python'].copy()
-            self.codegen.for_version = compat.version
-            EditStylesMixin.codegen = self.codegen
+            EditStylesMixin.codegen = common.code_writers['preview']
 
         try:
-            self.widget_writer = self.codegen.obj_builders[klass]
+            self.widget_writer = self.codegen.obj_builders[self.WX_CLASS]
         except KeyError:
             raise NotImplementedError
         if styles:
@@ -1067,49 +1123,7 @@ class EditStylesMixin(np.PropertyOwner):
                 self.style_names = styles
         else:
             self.style_names = self.widget_writer.style_list
-        #self.style = np.WidgetStyleProperty(0) # this will use below methods
         self.style = np.WidgetStyleProperty()  # this will read it's default value
-
-    def _set_widget_style(self):
-        """Set a new widget style if the style has changed.
-        For some widgets style changes are not possible, so they need to be re-created.
-        The attribute recreate_on_style_change needs to be True in this case."""
-        if not self.widget or not self.update_widget_style: return
-        old_style = self.widget.GetWindowStyleFlag()
-        new_style = self.style
-        if old_style == new_style: return
-
-        recreate = self.recreate_on_style_change
-        if self.WX_CLASS == "wxButton" and (old_style & wx.BU_EXACTFIT != new_style & wx.BU_EXACTFIT):
-            recreate = True  # workaround
-
-        if not recreate:
-            # update style without re-creating the widget
-            self.widget.SetWindowStyleFlag(new_style)
-            self.widget.Refresh()
-            return
-
-        # some widgets can't be updated, e.g. Gauge can't be switched between horizontal and vertical after creation
-        # this is for ManagedBase derived classes only
-        with self.frozen():
-            focused = misc.focused_widget is self
-            if self.sel_marker:
-                self.sel_marker.Destroy()
-                self.sel_marker = None
-            old_widget = self.widget
-            old_widget.Hide()
-            si = self.sizer.widget.GetItem(old_widget)
-            self.create_widget()
-            compat.SizerItem_SetWindow(si, self.widget)
-            compat.DestroyLater(old_widget)
-            self.sizer.item_properties_modified(self)  # will call toplevel Refresh as well
-
-            self.finish_widget_creation(re_add=False)
-            self.sizer.layout()
-            if focused:
-                misc.focused_widget = self
-                if self.sel_marker: self.sel_marker.Show(True)
-
 
     @decorators.memoize
     def wxname2attr(self, name):
@@ -1138,9 +1152,23 @@ class EditStylesMixin(np.PropertyOwner):
             return getattr(wx.propgrid, cn)
         raise ValueError("namespace %s not implemented"%namespace)
 
-    def properties_changed(self, modified):
-        if "style" in modified:
-            self._set_widget_style()
+    def _properties_changed(self, modified, actions):
+        if not modified or not "style" in modified: return
+        if not self.widget or not self.update_widget_style: return
+        if "recreate" in actions or "recreate2" in actions: return
+        old_style = self.widget.GetWindowStyleFlag()
+        new_style = self.style
+        if old_style == new_style: return
+
+        if self.recreate_on_style_change:
+            actions.add("recreate2")
+        if self.WX_CLASS == "wxButton" and (old_style & wx.BU_EXACTFIT != new_style & wx.BU_EXACTFIT):
+            actions.add("recreate2")  # workaround
+
+        if not "recreate2" in actions:
+            # update style without re-creating the widget
+            self.widget.SetWindowStyleFlag(new_style)
+            actions.add("refresh")
 
 
 class Slot(edit_base.Slot):

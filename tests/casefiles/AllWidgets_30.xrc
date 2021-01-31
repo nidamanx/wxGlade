@@ -108,7 +108,7 @@
                                 <flag>wxALL|wxEXPAND</flag>
                                 <border>5</border>
                                 <object class="wxBitmapButton" name="bitmap_button_icon1">
-                                    <bitmap>icon.xpm</bitmap>
+                                    <bitmap>icon.png</bitmap>
                                     <default>1</default>
                                 </object>
                             </object>
@@ -125,7 +125,7 @@
                                 <flag>wxALL|wxEXPAND</flag>
                                 <border>5</border>
                                 <object class="wxBitmapButton" name="bitmap_button_icon2">
-                                    <bitmap>icon.xpm</bitmap>
+                                    <bitmap>icon.png</bitmap>
                                     <default>1</default>
                                     <style>wxBORDER_NONE|wxBU_BOTTOM</style>
                                 </object>
@@ -341,7 +341,7 @@
                             <orient>wxHORIZONTAL</orient>
                             <object class="sizeritem">
                                 <option>1</option>
-                                <flag>wxALIGN_CENTER|wxALL</flag>
+                                <flag>wxALIGN_CENTER_VERTICAL|wxALL</flag>
                                 <border>5</border>
                                 <object class="wxDatePickerCtrl" name="datepicker_ctrl_1">
                                     <style>wxDP_SHOWCENTURY</style>
@@ -673,6 +673,7 @@
                                 <flag>wxALL|wxEXPAND</flag>
                                 <border>5</border>
                                 <object class="wxSplitterWindow" name="splitter_1">
+                                    <bg>#ff0000</bg>
                                     <min_pane_size>20</min_pane_size>
                                     <orientation>horizontal</orientation>
                                     <object class="wxPanel" name="splitter_1_pane_1">
@@ -761,22 +762,22 @@
                             <orient>wxVERTICAL</orient>
                             <object class="sizeritem">
                                 <option>1</option>
-                                <flag>wxALIGN_CENTER|wxALL|wxEXPAND</flag>
+                                <flag>wxALL|wxEXPAND</flag>
                                 <border>5</border>
                                 <object class="wxStaticBitmap" name="bitmap_empty">
                                 </object>
                             </object>
                             <object class="sizeritem">
                                 <option>1</option>
-                                <flag>wxALIGN_CENTER|wxALL|wxEXPAND</flag>
+                                <flag>wxALL|wxEXPAND</flag>
                                 <border>5</border>
                                 <object class="wxStaticBitmap" name="bitmap_file">
-                                    <bitmap>icon.xpm</bitmap>
+                                    <bitmap>icon.png</bitmap>
                                 </object>
                             </object>
                             <object class="sizeritem">
                                 <option>1</option>
-                                <flag>wxALIGN_CENTER|wxALL|wxEXPAND</flag>
+                                <flag>wxALL|wxEXPAND</flag>
                                 <border>5</border>
                                 <object class="wxStaticBitmap" name="bitmap_nofile">
                                     <bitmap>non-existing.bmp</bitmap>
@@ -784,7 +785,7 @@
                             </object>
                             <object class="sizeritem">
                                 <option>1</option>
-                                <flag>wxALIGN_CENTER|wxALL|wxEXPAND</flag>
+                                <flag>wxALL|wxEXPAND</flag>
                                 <border>5</border>
                                 <object class="wxStaticBitmap" name="bitmap_art">
                                     <bitmap stock_id="wxART_PRINT" />
@@ -792,14 +793,14 @@
                             </object>
                             <object class="sizeritem">
                                 <option>1</option>
-                                <flag>wxALIGN_CENTER|wxALL|wxEXPAND</flag>
+                                <flag>wxALL|wxEXPAND</flag>
                                 <border>5</border>
                                 <object class="wxStaticBitmap" name="bitmap_null">
                                 </object>
                             </object>
                             <object class="sizeritem">
                                 <option>1</option>
-                                <flag>wxALIGN_CENTER|wxALL|wxEXPAND</flag>
+                                <flag>wxALL|wxEXPAND</flag>
                                 <border>5</border>
                                 <object class="wxStaticBitmap" name="bitmap_null_sized">
                                     <size>50, 50</size>
@@ -872,7 +873,7 @@
                                 <object class="wxStaticText" name="label_1">
                                     <fg>#ff0000</fg>
                                     <label>red text (RGB)</label>
-                                    <style>wxALIGN_CENTER</style>
+                                    <style>wxALIGN_CENTER_HORIZONTAL</style>
                                 </object>
                             </object>
                             <object class="sizeritem">
@@ -882,7 +883,7 @@
                                 <object class="wxStaticText" name="label_4">
                                     <bg>#ff0000</bg>
                                     <label>black on red (RGB)</label>
-                                    <style>wxALIGN_CENTER</style>
+                                    <style>wxALIGN_CENTER_HORIZONTAL</style>
                                     <tooltip>Background colour won't show, check documentation for more details</tooltip>
                                 </object>
                             </object>
@@ -894,7 +895,7 @@
                                     <bg>#ff00ff</bg>
                                     <fg>#00ff00</fg>
                                     <label>green on pink (RGB)</label>
-                                    <style>wxALIGN_CENTER</style>
+                                    <style>wxALIGN_CENTER_HORIZONTAL</style>
                                     <tooltip>Background colour won't show, check documentation for more details</tooltip>
                                 </object>
                             </object>

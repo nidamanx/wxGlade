@@ -9,8 +9,8 @@ Perl code generator
 
 import os, os.path, re
 from codegen import BaseLangCodeWriter, BaseSourceFileContent
-import wcodegen
-import compat
+import wcodegen, compat
+import logging
 
 
 class SourceFileContent(BaseSourceFileContent):
@@ -309,9 +309,7 @@ sub %(handler)s {
         mycn_f = getattr(builder, 'cn_f', self.cn_f)
 
         # custom base classes support
-        custom_base = getattr( code_obj, 'custom_base', code_obj.properties.get('custom_base', None) )
-        if self.preview or (custom_base and not custom_base.strip()):
-            custom_base = None
+        custom_base = code_obj.check_prop_nodefault('custom_base') and code_obj.custom_base.strip() or None
 
         new_signature = getattr(builder, 'new_signature', [])
 
@@ -346,11 +344,10 @@ sub %(handler)s {
                         write(self.new_defaults[k])
             else:
                 new_signature = ['@_[1 .. $#_]']  # shift(@_)->SUPER::new(@_);
-                self._logger.info( "%s did not declare self.new_defaults ", code_obj.klass )
+                logging.info( "%s did not declare self.new_defaults ", code_obj.klass )
 
         elif custom_base:
-            # custom base classes set, but "overwrite existing sources" not
-            # set. Issue a warning about this
+            # custom base classes set, but "overwrite existing sources" not set. Issue a warning about this
             self.warning( '%s has custom base classes, but you are not overwriting existing sources: '
                           'please check that the resulting code is correct!' % code_obj.name )
 
@@ -379,6 +376,8 @@ sub %(handler)s {
         # set size here to avoid problems with splitter windows
         if code_obj.check_prop('size'):
             write( tab + self.generate_code_size(code_obj) )
+        if code_obj.check_prop('min_size'):
+            write( tab + self.generate_code_size(code_obj, code_obj.min_size, "SetMinSize") )
 
         for l in builder.get_properties_code(code_obj):
             write(tab + l)
@@ -452,11 +451,13 @@ sub %(handler)s {
         # check to see if we have to make the var global or not...
         return 'use constant %s => %s;\n' % (name, val), name
 
-    def generate_code_size(self, obj):
+    def generate_code_size(self, obj, size=None, method=None):
         objname = self.format_generic_access(obj)
-        size = obj.properties["size"].get_string_value()
+        if size is None:
+            size = obj.properties["size"].get_string_value()
         use_dialog_units = (size[-1] == 'd')
-        method = 'SetMinSize'  if obj.parent_window  else  'SetSize'
+        if method is None:
+            method = 'SetMinSize'  if obj.parent_window  else  'SetSize'
 
         if use_dialog_units:
             return '%s->%s(%s->ConvertDialogSizeToPixels(Wx::Size->new(%s)));\n' % (objname, method, objname, size[:-1])
@@ -518,7 +519,7 @@ sub %(handler)s {
         elif obj.name.startswith('$'):
             return obj.name
         # spacer.name is "<width>, <height>" already
-        elif obj.klass == 'spacer':
+        elif obj.WX_CLASS == 'spacer':
             return obj.name
         # Perl stores sizers always in class attributes
         elif self.store_as_attr(obj) or obj.IS_SIZER:

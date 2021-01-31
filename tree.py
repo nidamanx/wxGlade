@@ -7,7 +7,7 @@ Classes to handle and display the structure of a wxGlade app
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
-import logging, os.path
+import os.path
 import wx
 import misc, common, compat, config, clipboard
 
@@ -18,9 +18,7 @@ if DEBUG:
 class WidgetTree(wx.TreeCtrl):#, Tree):
     "Tree with the ability to display the hierarchy of widgets"
     images = {} # Dictionary of icons of the widgets displayed
-    _logger = None # Class specific logging instance
     def __init__(self, parent, application):
-        self._logger = logging.getLogger(self.__class__.__name__)
         style = wx.TR_DEFAULT_STYLE|wx.TR_HAS_VARIABLE_ROW_HEIGHT
         style |= wx.TR_EDIT_LABELS
         if wx.Platform == '__WXGTK__':    style |= wx.TR_NO_LINES|wx.TR_FULL_ROW_HIGHLIGHT
@@ -28,15 +26,10 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
         wx.TreeCtrl.__init__(self, parent, -1, style=style)
         self.cur_widget = None  # reference to the selected widget
         self.root = application
-        image_list = wx.ImageList(21, 21)
-        image_list.Add(wx.Bitmap(os.path.join(config.icons_path, 'application.xpm'), wx.BITMAP_TYPE_XPM))
-        for w in WidgetTree.images:
-            WidgetTree.images[w] = image_list.Add(misc.get_xpm_bitmap(WidgetTree.images[w]))
-        self.AssignImageList(image_list)
+        self._load_images()
         application.item = self.AddRoot(_('Application'), 0)
         self._SetItemData(application.item, application)
-        self.skip_select = 0  # necessary to avoid an infinite loop on win32, as SelectItem fires an
-                              # EVT_TREE_SEL_CHANGED event
+        self.skip_select = 0  # avoid an infinite loop on win32, as SelectItem fires an EVT_TREE_SEL_CHANGED event
 
         self.drop_target = clipboard.DropTarget(self, toplevel=True)
         self.SetDropTarget(self.drop_target)
@@ -59,9 +52,53 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
         #self.Bind(wx.EVT_CHAR_HOOK, self.on_char)  # on wx 2.8 the event will not be delivered to the child
         self.Bind(wx.EVT_TREE_DELETE_ITEM, self.on_delete_item)
 
+    def _load_images(self):
+        bitmaps = {}
+        for name, path in WidgetTree.images.items():
+            img = misc.get_xpm_bitmap(path).ConvertToImage()
+            # add 1 white pixel more at top and bottom
+            img.Resize((21,23), (0,1), -1,-1,-1)
+            bitmaps[name] = img.ConvertToBitmap()
+
+        # grid sizer slots:
+        # load template with one active slot and build new images with slot at any position top/left to bottom/right
+        fn = os.path.join(config.icons_path, 'grid_sizer_slot_template.png')  # bottom / right in black
+        template = wx.Image(fn, wx.BITMAP_TYPE_PNG)
+        t_empty  = template.GetSubImage( (0,0,7,7) )    # empty slot
+        t_active = template.GetSubImage( (0,7,7,7) )    # active slot
+        t_bottom = template.GetSubImage( (0,20,20,1) )  # typically a black line at bottom
+        t_right  = template.GetSubImage( (20,0,1,20) )  # typically a black line at right
+        for pos_v in (0,1,2):           # active slot v
+            for pos_h in (0,1,2):       # active slot h
+                img = compat.wx_EmptyImage(21, 21)
+                for x in (0,1,2):       # left, center, right
+                    for y in (0,1,2):   # top, middle, button
+                        t = t_active  if x==pos_h and y==pos_v else  t_empty
+                        img.Paste(t, x*7, y*7)
+                img.Paste(t_bottom, 0,20)
+                img.Paste(t_right, 20,0)
+                # add 1 white pixel more at top and bottom, store; store also -Disabled version
+                img.Resize((21,23), (0,1), -1,-1,-1)
+                name = 'EditGridSizerSlot-%d%d'%(pos_h,pos_v)
+                bmp = bitmaps[name] = img.ConvertToBitmap()
+                if hasattr(bmp, "ConvertToDisabled"):
+                    bitmaps['%s-Disabled'%name] = bmp.ConvertToDisabled()
+                else:
+                    bitmaps['%s-Disabled'%name] = img.AdjustChannels(1.5, 1.5, 1.5).ConvertToBitmap()
+
+        # store in the bitmap list
+        image_list = wx.ImageList(21, 23)
+        app_image = wx.Image(os.path.join(config.icons_path, 'application.png'), wx.BITMAP_TYPE_PNG)
+        app_image.Resize((21,23), (0,1), -1,-1,-1)
+        image_list.Add( app_image.ConvertToBitmap() )
+        for name, bitmap in bitmaps.items():
+            WidgetTree.images[name] = image_list.Add(bitmap)
+        self.AssignImageList(image_list)
+
     def on_char(self, event):
         "called from main: start label editing on F2; skip events while editing"
-        if event.GetKeyCode()==wx.WXK_F2 and self.cur_widget and self.cur_widget._label_editable():
+        keycode = event.GetKeyCode()
+        if keycode==wx.WXK_F2 and self.cur_widget and self.cur_widget._label_editable():
             # start label editing
             self.EditLabel( self.cur_widget.item )
             return True
@@ -69,6 +106,22 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
             # currently editing
             event.Skip()
             return True
+        if keycode in (wx.WXK_UP, wx.WXK_DOWN, wx.WXK_LEFT, wx.WXK_RIGHT):
+            event.Skip()
+            return True
+        if keycode==wx.WXK_RETURN and self.cur_widget and self.cur_widget.item:
+            if self.cur_widget.IS_SLOT:
+                if self.cur_widget.overlapped: return True
+                return False
+            if self.cur_widget.IS_TOPLEVEL and self.cur_widget.children:
+                self.show_toplevel(None, editor=self.cur_widget)
+                return True
+            elif not self.IsExpanded(self.cur_widget.item) and self.cur_widget.children:
+                self.ExpandAllChildren(self.cur_widget.item)
+                return True
+            elif self.IsExpanded(self.cur_widget.item):
+                self.Collapse(self.cur_widget.item)
+                return True
         return False
 
     def on_key_down_event(self, event):
@@ -92,6 +145,9 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
         # start drag & drop
         item = evt.GetItem()
         widget = self._GetItemData(item)
+        if not widget:
+            if config.debugging: raise ValueError("internal error")
+            return
         if widget is self.root or widget.IS_SLOT: return  # application and slots can't be dragged
         self._drag_ongoing = True
         clipboard.begin_drag(self, widget)
@@ -100,7 +156,7 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
     def begin_edit_label(self, evt):
         # Begin editing a label. This can be prevented by calling Veto()
         widget = self._GetItemData( evt.Item )
-        if not widget._label_editable(): evt.Veto()
+        if not widget or not widget._label_editable(): evt.Veto()
 
     def _split_name_label(self, new_value):
         # split user input into name and label; if there's no colon but a quotation mark, it's just a label
@@ -135,8 +191,8 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
         if new_value==widget._get_tree_label(): return
 
         new_name = new_label = new_title = new_tab = new_class = new_stockitem = None
-        
-        if widget.klass != widget.WX_CLASS and widget.klass != 'wxScrolledWindow':
+
+        if widget.check_prop_truth("class"):
             if new_value.count("(")==1 and new_value.count(")")==1:
                 pre, new_class = new_value.split("(")
                 new_class, post = new_class.split(")")
@@ -159,7 +215,7 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
             new_name, dummy = self._split_name_label(new_value)
         elif getattr(widget, "has_title", None):
             new_name, new_title = self._split_name_label(new_value)
-        elif getattr(widget, "parent", None) and widget.parent.klass=="wxNotebook" and "]" in new_value:
+        elif getattr(widget, "parent", None) and widget.parent.WX_CLASS=="wxNotebook" and "]" in new_value:
             # notebook pages: include page title: "[title] name"
             new_tab, new_name = new_value.rsplit("]",1)
             if "[" in new_tab: new_tab = new_tab.split("[",1)[-1]
@@ -173,8 +229,8 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
             if new_name==name_p.get(): new_name = None
         if new_name:
             # check
-            OK = name_p.check(new_name)
-            if not OK: new_name = None
+            warning, error = name_p.check_value(new_name)
+            if warning or error: new_name = None
 
         # check class/klass
         if new_class:
@@ -182,8 +238,8 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
             if new_class==class_p.get(): new_class = None
         if new_class:
             # check
-            OK = class_p.check(new_class)
-            if not OK: new_class = None
+            warning, error = name_p.check_value(new_class)
+            if warning or error: new_class = None
 
         # check label
         if new_label is not None:
@@ -404,7 +460,7 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
         #if config.debugging or DEBUG:
         if DEBUG:
             import utilities
-            utilities.TreePrinter(self)
+            utilities.TreePrinter(editor)
 
     def OnCompareItems(self, item1, item2):
         # only used when re-ordering toplevel items
@@ -457,16 +513,23 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
         if editor is None or editor is self.cur_widget or editor.item is None: return
         self.skip_select = True
         self.SelectItem(editor.item)
+        if not self.IsExpanded(editor.item) and (not hasattr(self, "HasFocus") or not self.HasFocus()):
+            self.Expand(editor.item)
         self.skip_select = False
         self._set_cur_widget(editor)
 
     def on_change_selection(self, event):
-        if self.skip_select: return  # triggered by self.SelectItem in self.set_current_widget
+        if self.skip_select:
+            event.Skip()
+            return  # triggered by self.SelectItem in self.set_current_widget
         item = event.GetItem()
         editor = self._GetItemData(item)
+        if not editor:  # can happen during build/rebuild_tree
+            event.Skip()
+            return
         self._set_cur_widget(editor)
         misc.set_focused_widget(editor)
-        if not self.IsExpanded(item):
+        if not self.IsExpanded(item) and (not hasattr(self, "HasFocus") or not self.HasFocus()):
             self.Expand(item)
         self.SetFocus()
 
@@ -487,6 +550,7 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
         elif common.adding_sizer or True:
             editor.drop_sizer()
         common.adding_window = None
+        self.SetFocus()  # required instead of Skip if widget builder is showing a dialog
 
     def on_left_dclick(self, event):
         x, y = event.GetPosition()
@@ -510,7 +574,7 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
     def on_menu(self, event):
         # the first entry in the popup menu, i.e. the name was selected
         if self._popup_menu_widget is None: return
-        if self._popup_menu_widget.IS_TOPLEVEL_WINDOW:
+        if self._popup_menu_widget.IS_TOPLEVEL:
             self.show_toplevel( None, self._popup_menu_widget )
 
     def on_mouse_events(self, event):
@@ -569,9 +633,10 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
         if not editor.is_visible():
             # added by rlawson to expand node on showing top level widget
             self.ExpandAllChildren(editor.item)
-            editor.create_widgets()
+            editor.show_widget()
 
             if wx.Platform != '__WXMSW__' and set_size is not None:
+                #  XXX integrate with above or remove above again?
                 toplevel_widget = editor.widget  # above it was not yet created
                 wx.CallAfter(toplevel_widget.SetSize, set_size)
         else:

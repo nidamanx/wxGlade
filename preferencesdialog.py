@@ -20,15 +20,34 @@ class wxGladePreferences(wxGladePreferencesUI):
     def __init__(self, preferences):
         wxGladePreferencesUI.__init__(self, None, -1, "")
 
+        self.check_accessibility()
+
         self.choose_widget_path.Bind(wx.EVT_BUTTON, self.on_widget_path)
 
         self.preferences = preferences
         self.set_values()
 
+    def check_accessibility(self):
+        # add a warning if not NVDA etc. compatible
+        import sys, platform, compat
+        if sys.platform!="win32" or not compat.IS_PHOENIX: return
+        if platform.architecture()[0] != "32bit": return
+        version = wx.VERSION[:3]
+        if version < (4,0,4) or version > (4,0,7): return
+        panel = self.sizer_accessibility.GetContainingWindow()
+        text = wx.StaticText(panel, label="Please be warned that your version of wxPython\n"
+                                          "probably does not support screen readers very well.\n"
+                                          "This is a problem with wxPython versions\n"
+                                          "4.0.4 to 4.0.7 on 32 bit Python on Windows.\n"
+                                          "A workaround is to set the name argument of CheckBox.")
+        self.sizer_accessibility.Insert(0, text, 0, wx.ALL, 10)
+        self.sizer_accessibility.Layout()
+
     def set_values(self):
         try:
             self.open_save_path.SetValue(self.preferences.open_save_path)
             self.codegen_path.SetValue(self.preferences.codegen_path)
+            self.allow_custom_widgets.SetValue( self.preferences.allow_custom_widgets )
             self.use_dialog_units.SetValue( self.preferences.use_dialog_units )
             self.number_history.SetValue(self.preferences.number_history)
             self.show_progress.SetValue(self.preferences.show_progress)
@@ -45,7 +64,8 @@ class wxGladePreferences(wxGladePreferencesUI):
             self.show_palette_labels.SetValue( self.preferences.show_palette_labels )
             self.show_gridproperty_editors.SetValue( self.preferences.show_gridproperty_editors )
             self.use_checkboxes_workaround.SetValue( self.preferences.use_checkboxes_workaround )
-            
+            self.no_checkbox_label_colours.SetValue( self.preferences.no_checkbox_label_colours )
+
             self.allow_duplicate_names.SetValue( self.preferences.allow_duplicate_names )
             self.autosave.SetValue(self.preferences.autosave)
             self.autosave_delay.SetValue(self.preferences.autosave_delay)
@@ -84,6 +104,7 @@ class wxGladePreferences(wxGladePreferencesUI):
         prefs = self.preferences
         prefs['open_save_path'] = self.open_save_path.GetValue()
         prefs['codegen_path'] = self.codegen_path.GetValue()
+        prefs['allow_custom_widgets'] = self.allow_custom_widgets.GetValue()
         prefs['use_dialog_units'] = self.use_dialog_units.GetValue()
         prefs['number_history'] = self.number_history.GetValue()
         prefs['show_progress'] = self.show_progress.GetValue()
@@ -105,6 +126,8 @@ class wxGladePreferences(wxGladePreferencesUI):
         prefs['show_palette_labels'] = show_text
         prefs['show_gridproperty_editors'] = self.show_gridproperty_editors.GetValue()
         prefs['use_checkboxes_workaround'] = self.use_checkboxes_workaround.GetValue()
+        prefs['no_checkbox_label_colours'] = self.no_checkbox_label_colours.GetValue()
+
         prefs['allow_duplicate_names'] = self.allow_duplicate_names.GetValue()
         prefs['autosave'] = self.autosave.GetValue()
         prefs['autosave_delay'] = self.autosave_delay.GetValue()

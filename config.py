@@ -13,6 +13,17 @@ see: preferencesdialog
 import os, sys
 
 
+debugging = ('WINGDB_ACTIVE' in os.environ)  # if True, at many places exceptions will be raised instead of handled
+use_freeze_thaw = False
+if sys.platform=="win32":
+    use_freeze_thaw = True  # for debugging, you may want to set this to False
+open_design_window = debugging  # if True, wxGlade will open the design window when started with a command line argument
+use_gui = True   # If True, wxGlade runs in "GUI" mode, if False, in "batch" mode for generating code only
+inform_screen_reader = None  # set if program starts for the first time and a screen reader is installed
+
+testing = False  # to be set by the testing framework
+
+
 # default configuration values #########################################################################################
 default_app_name = 'app'           # application name
 
@@ -34,7 +45,7 @@ default_multiple_files = 0   # value for writing multiple files (each class in a
 default_overwrite = 1        # value for overwriting existing sources
 default_use_gettext = False  # value to usage of gettext
 
-for_version = (2, 8) # version to generate code for
+for_version_min = (2, 8) # min version to generate code for
 
 
 # these paths, file names and strings will be set during initialisation: ###############################################
@@ -61,9 +72,6 @@ rc_file = ''                         # Path to the rc / ini file to store user p
 history_file = ''                    # Path to the history file, if used
 log_file = ''                        # Path to wxGlade log file
 
-
-
-use_gui = True                 # If True, wxGlade runs in "GUI" mode, if False, in "batch" mode for generating code only
 use_file_history =  True       # Flag to use a file history
 
 
@@ -75,9 +83,6 @@ label_width = 96     # width of labels in Property window
 
 tooltip_time = 3    # Number of seconds a tooltip will be shown
 tooltip_width = 50  # Maximum width to split tooltips into
-
-debugging = ('WINGDB_ACTIVE' in os.environ)  # if True, at many places exceptions will be raised instead of handled
-testing = False  # to be set by the testing framework
 
 ########################################################################################################################
 # Dictionary to store widget generic widget details like tooltips, different names, ...
@@ -92,10 +97,13 @@ widget_config = {
         'wxBOTTOM': { 'desc': _('Apply the border to the bottom.') },
         'wxLEFT':   { 'desc': _('Apply the border to the left.') },
         'wxRIGHT':  { 'desc': _('Apply the border to the right.') },
-        'wxALIGN_LEFT':   {'desc': _('Align the item to the left.') },
-        'wxALIGN_RIGHT':  {'desc': _('Align the item to the right.') },
+        'wxALIGN_LEFT':   {'desc': _('Align the item to the left.'),
+                           'exclude': 'wxALIGN_CENTER_HORIZONTAL|wxALIGN_RIGHT|wxALIGN_CENTER'},
+        'wxALIGN_RIGHT':  {'desc': _('Align the item to the right.'),
+                           'exclude': 'wxALIGN_CENTER_HORIZONTAL|wxALIGN_LEFT|wxALIGN_CENTER'},
         'wxALIGN_CENTER': { 'desc': _('Centre the item (horizontally).'),
-                            'combination': 'wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL' },
+                            'combination': 'wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL',
+                            'exclude': 'wxALIGN_RIGHT|wxALIGN_LEFT'},
         'wxALIGN_CENTRE': { 'desc': _('Centre the item (horizontally).'),
                             'synonym': 'wxALIGN_CENTER',
                             'rename_to': 'wxALIGN_CENTER',
@@ -106,7 +114,8 @@ widget_config = {
         'wxALIGN_CENTRE_VERTICAL':   { 'desc': _('Centre the item vertically.'),
                                        'synonym': 'wxALIGN_CENTER_VERTICAL',
                                        'rename_to': 'wxALIGN_CENTER_VERTICAL' },
-        'wxALIGN_CENTER_HORIZONTAL': { 'desc': _('Centre the item horizontally.') },
+        'wxALIGN_CENTER_HORIZONTAL': { 'desc': _('Centre the item horizontally.'),
+                                       'exclude': 'wxALIGN_RIGHT|wxALIGN_LEFT'},
         'wxALIGN_CENTRE_HORIZONTAL': { 'desc': _('Centre the item horizontally.'),
                                        'synonym': 'wxALIGN_CENTER_HORIZONTAL',
                                        'rename_to': 'wxALIGN_CENTER_HORIZONTAL' },
@@ -151,40 +160,41 @@ widget_config = {
 
         # Generic border styles
         'wxBORDER_DEFAULT': { 'desc': _('The window class will decide the kind of border to show, if any.'),
-                              'supported_by': ('wx3',) },
-        'wxSIMPLE_BORDER':  { 'desc': _('Displays a thin border around the window. '
-                                        'wxSIMPLE_BORDER is the old name for this style.'),
-                              'rename_to': 'wxBORDER_SIMPLE' },
-        'wxBORDER_SIMPLE':  { 'desc': _('Displays a thin border around the window. '
-                                        'wxSIMPLE_BORDER is the old name for this style.') },
-        'wxSUNKEN_BORDER':  { 'desc': _('Displays a sunken border. wxSUNKEN_BORDER is the old name for this style.'),
-                              'rename_to': 'wxBORDER_SUNKEN' },
-        'wxBORDER_SUNKEN':  { 'desc': _('Displays a sunken border. wxSUNKEN_BORDER is the old name for this style.') },
-        'wxRAISED_BORDER':  { 'desc': _('Displays a raised border. wxRAISED_BORDER is the old name for this style.'),
-                              'rename_to': 'wxBORDER_RAISED' },
-        'wxBORDER_RAISED':  { 'desc': _('Displays a raised border. wxRAISED_BORDER is the old name for this style.') },
-        'wxSTATIC_BORDER':  { 'desc': _('Displays a border suitable for a static control. '
-                                        'wxSTATIC_BORDER is the old name for this style. Windows only.'),
-                              'rename_to': 'wxBORDER_STATIC' },
-        'wxBORDER_STATIC':  { 'desc': _('Displays a border suitable for a static control. '
-                                        'wxSTATIC_BORDER is the old name for this style. Windows only.') },
+                              'supported_by': ('wx3',),
+                              'exclude': 'wxBORDER_NONE|wxBORDER_STATIC|wxBORDER_SIMPLE|wxBORDER_RAISED|wxBORDER_SUNKEN|wxBORDER_DOUBLE|wxBORDER_THEME'},
+        'wxBORDER_SIMPLE':  { 'desc': _('Displays a thin border around the window.'),
+                              'exclude': 'wxBORDER_DEFAULT|wxBORDER_NONE|wxBORDER_STATIC|wxBORDER_RAISED|wxBORDER_SUNKEN|wxBORDER_DOUBLE|wxBORDER_THEME'},
+        'wxBORDER_SUNKEN':  { 'desc': _('Displays a sunken border.'),
+                              'exclude': 'wxBORDER_DEFAULT|wxBORDER_NONE|wxBORDER_STATIC|wxBORDER_SIMPLE|wxBORDER_RAISED|wxBORDER_DOUBLE|wxBORDER_THEME'},
+        'wxBORDER_RAISED':  { 'desc': _('Displays a raised border.'),
+                              'exclude': 'wxBORDER_DEFAULT|wxBORDER_NONE|wxBORDER_STATIC|wxBORDER_SIMPLE|wxBORDER_SUNKEN|wxBORDER_DOUBLE|wxBORDER_THEME'},
+        'wxBORDER_STATIC':  { 'desc': _('Displays a border suitable for a static control. Windows only.'),
+                              'exclude': 'wxBORDER_DEFAULT|wxBORDER_NONE|wxBORDER_SIMPLE|wxBORDER_RAISED|wxBORDER_SUNKEN|wxBORDER_DOUBLE|wxBORDER_THEME'},
         'wxBORDER_THEME':   { 'desc': _('Displays a native border suitable for a control, on the current platform. '
                                         'On Windows XP or Vista, this will be a themed border; '
                                         'on most other platforms a sunken border will be used. '
                                         'For more information for themed borders on Windows, please see Themed borders '
-                                        'on Windows.') },
-        'wxNO_BORDER': { 'desc': _('Displays no border, overriding the default border '
-                                   'style for the window. wxNO_BORDER is the old name for this style.'),
-                         'rename_to': 'wxBORDER_NONE' },
-        'wxBORDER_NONE': { 'desc': _('Displays no border, overriding the default border style for the window.'
-                                     ' wxNO_BORDER is the old name for this style.'),
+                                        'on Windows.'),
+                              'exclude': 'wxBORDER_DEFAULT|wxBORDER_NONE|wxBORDER_STATIC|wxBORDER_SIMPLE|wxBORDER_RAISED|wxBORDER_SUNKEN|wxBORDER_DOUBLE'},
+        'wxBORDER_NONE': { 'desc': _('Displays no border, overriding the default border style for the window.'),
+                           'exclude': 'wxBORDER_DEFAULT|wxBORDER_STATIC|wxBORDER_SIMPLE|wxBORDER_RAISED|wxBORDER_SUNKEN|wxBORDER_DOUBLE|wxBORDER_THEME'
         },
-        'wxDOUBLE_BORDER': { 'desc':_('Displays a double border. wxDOUBLE_BORDER is the old name for this style. '
-                                      'Windows and Mac only.'),
+        # obsolete border style
+        'wxBORDER_DOUBLE': { 'desc':_('Displays a double border. Windows and Mac only.'),
+                             'obsolete': _('since wx3.0'),
+                             'supported_by': ('wx2',),
+                             'exclude': 'wxBORDER_DEFAULT|wxBORDER_STATIC|wxBORDER_SIMPLE|wxBORDER_RAISED|wxBORDER_SUNKEN|wxBORDER_THEME'},
+
+        # old border style names
+        'wxSIMPLE_BORDER':  { 'desc': _('Displays a thin border around the window.'), 'rename_to': 'wxBORDER_SIMPLE' },
+        'wxSUNKEN_BORDER':  { 'desc': _('Displays a sunken border.'), 'rename_to': 'wxBORDER_SUNKEN' },
+        'wxRAISED_BORDER':  { 'desc': _('Displays a raised border.'), 'rename_to': 'wxBORDER_RAISED' },
+        'wxSTATIC_BORDER':  { 'desc': _('Displays a border suitable for a static control. Windows only.'),
+                              'rename_to': 'wxBORDER_STATIC' },
+        'wxNO_BORDER': { 'desc': _('Displays no border, overriding the default border style for the window.'),
+                         'rename_to': 'wxBORDER_NONE' },
+        'wxDOUBLE_BORDER': { 'desc':_('Displays a double border. Windows and Mac only.'),
                              'rename_to': 'wxBORDER_DOUBLE' },
-        'wxBORDER_DOUBLE': { 'desc':_('Displays a double border. wxDOUBLE_BORDER is the old name for this style. '
-                                      'Windows and Mac only.'),
-                             'obsolete': _('since wx3.0') },
 
         # wxDialog styles
         'wxNO_3D': { 'desc': _('Under Windows, specifies that the child controls should not have 3D borders unless '

@@ -25,8 +25,8 @@ class EditToggleButton(BitmapMixin, ManagedBase, EditStylesMixin):
     PROPERTIES = ManagedBase.PROPERTIES + _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
     _PROPERTY_LABELS = {"value":"Clicked"}
 
-    def __init__(self, name, parent, label, pos):
-        ManagedBase.__init__(self, name, 'wxToggleButton', parent, pos)
+    def __init__(self, name, parent, index, label):
+        ManagedBase.__init__(self, name, parent, index)
         EditStylesMixin.__init__(self)
 
         # initialise instance variable
@@ -40,46 +40,39 @@ class EditToggleButton(BitmapMixin, ManagedBase, EditStylesMixin):
         self.focus_bitmap    = np.BitmapPropertyD(min_version=(3,0))
 
     def create_widget(self):
-        self.widget = wx.ToggleButton(self.parent_window.widget, self.id, self.label)
+        self.widget = wx.ToggleButton(self.parent_window.widget, wx.ID_ANY, self.label, style=self.style)
         self.widget.SetValue(self.value)
-        self.widget.Bind(wx.EVT_TOGGLEBUTTON, self.on_set_focus, id=self.id)
+        self.widget.Bind(wx.EVT_TOGGLEBUTTON, self.on_set_focus, id=self.widget.GetId())
         BitmapMixin._set_preview_bitmaps(self)
 
-    def properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         if not modified or "value" in modified and self.widget:
             self.widget.SetValue(self.value)
 
         if not modified or "label" in modified:
             if self.widget:
                 self.widget.SetLabel(self.label)
-                self._set_widget_best_size()
-            common.app_tree.refresh(self, refresh_label=True, refresh_image=False)
+            if modified: actions.update(("layout", "label"))
 
-        BitmapMixin._properties_changed(self, modified)
-        self._set_widget_best_size()
-        EditStylesMixin.properties_changed(self, modified)
-        ManagedBase.properties_changed(self, modified)
+        BitmapMixin._properties_changed(self, modified, actions)
+        EditStylesMixin._properties_changed(self, modified, actions)
+        ManagedBase._properties_changed(self, modified, actions)
 
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for EditToggleButton objects"
     name = parent.toplevel_parent.get_next_contained_name('button_%d')
     with parent.frozen():
-        editor = EditToggleButton(name, parent, name, pos)
+        editor = EditToggleButton(name, parent, index, name)
         editor.properties["style"].set_to_default()
         editor.check_defaults()
         if parent.widget: editor.create()
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory to build EditToggleButton objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        name = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditToggleButton(name, parent, '', pos)
+    return EditToggleButton(name, parent, index, '')
 
 
 def initialize():
@@ -88,4 +81,4 @@ def initialize():
     common.widgets['EditToggleButton'] = builder
     common.widgets_from_xml['EditToggleButton'] = xml_builder
 
-    return common.make_object_button('EditToggleButton', 'toggle_button.xpm')
+    return common.make_object_button('EditToggleButton', 'toggle_button.png')

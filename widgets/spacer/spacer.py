@@ -17,12 +17,11 @@ class EditSpacer(ManagedBase):
     "Class to handle spacers for sizers"
     WX_CLASS = 'spacer'
     IS_NAMED = False
-    _PROPERTIES = ["Layout", "width", "height", "pos", "proportion", "border", "flag"]
+    _PROPERTIES = ["Layout", "width", "height", "proportion", "border", "flag"]
     PROPERTIES = _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
 
-    def __init__(self, name, parent, width, height, pos):
-        #ManagedBase.__init__(self, 'spacer', 'spacer', parent, pos)
-        ManagedBase.__init__(self, 'spacer', 'spacer', parent, pos)
+    def __init__(self, parent, index, width, height):
+        ManagedBase.__init__(self, 'spacer', parent, index)
 
         # initialise instance properties
         self.width  = np.SpinProperty(width,  immediate=True)
@@ -30,7 +29,7 @@ class EditSpacer(ManagedBase):
 
     def create_widget(self):
         style = wx.SIMPLE_BORDER | wx.FULL_REPAINT_ON_RESIZE
-        self.widget = wx.Window(self.parent_window.widget, self.id, size=(self.width, self.height), style=style)
+        self.widget = wx.Window(self.parent_window.widget, wx.ID_ANY, size=(self.width, self.height), style=style)
         self.widget.GetBestSize = self.widget.GetSize
         self.widget.Bind(wx.EVT_PAINT, self.on_paint)
 
@@ -52,12 +51,13 @@ class EditSpacer(ManagedBase):
         dc.DrawRectangle(x-1, y-1, tw+2, th+2)
         dc.DrawText(text, x, y)
 
-    def properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         if not modified or "width" in modified or "height" in modified:
             size = (self.width, self.height)
             if self.widget: self.widget.SetSize(size)
             self.parent.set_item_best_size(self, size=size)
-        ManagedBase.properties_changed(self, modified)
+            actions.add("layout")
+        ManagedBase._properties_changed(self, modified, actions)
 
 
 class _Dialog(wx.Dialog):
@@ -83,13 +83,13 @@ class _Dialog(wx.Dialog):
         btn = wx.Button(self, wx.ID_OK, _('OK') )
         btn.SetDefault()
         hsizer.Add(btn, 1, wx.ALL, 5)
-        sizer.Add(hsizer, 0, wx.EXPAND|wx.ALIGN_CENTER )
+        sizer.Add(hsizer, 0, wx.EXPAND)
 
         self.SetAutoLayout(True)
         self.SetSizer(sizer)
         sizer.Fit(self)
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for EditSpacer objects"
     dialog = _Dialog()
     with misc.disable_stay_on_top(common.adding_window or parent):
@@ -101,14 +101,14 @@ def builder(parent, pos):
         return
 
     with parent.frozen():
-        editor = EditSpacer( 'spacer', parent, width, height, pos )
+        editor = EditSpacer( parent, index, width, height )
         if parent.widget: editor.create()
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory to build EditSpacer objects from a XML file"
-    return EditSpacer('spacer', parent, 1, 1, pos)
+    return EditSpacer(parent, index, 1, 1)
 
 
 def initialize():
@@ -117,4 +117,4 @@ def initialize():
     common.widgets['EditSpacer'] = builder
     common.widgets_from_xml['EditSpacer'] = xml_builder
 
-    return common.make_object_button('EditSpacer', 'spacer.xpm')
+    return common.make_object_button('EditSpacer', 'spacer.png')

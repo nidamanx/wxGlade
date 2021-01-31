@@ -22,17 +22,19 @@ class EditListCtrl(ManagedBase, EditStylesMixin):
     PROPERTIES = ManagedBase.PROPERTIES + _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
     _PROPERTY_HELP = {"rows_number":"This is just used for the design and preview windows.",
                       "columns":"Only for style LC_REPORT."}
-    update_widget_style = True
+    recreate_on_style_change = True
 
-    def __init__(self, name, parent, pos, style=wx.LC_REPORT | wx.BORDER_SUNKEN):
-        ManagedBase.__init__(self, name, 'wxListCtrl', parent, pos)
+    def __init__(self, name, parent, index, style=wx.LC_REPORT | wx.BORDER_SUNKEN):
+        ManagedBase.__init__(self, name, parent, index)
         EditStylesMixin.__init__(self)
         if style: self.properties["style"].set(style)
         self.columns = GridColsProperty([])
         self.rows_number = np.SpinProperty(0, immediate=True, default_value=0)
+        self.properties["style"]._ignore_names = {"wxLC_VIRTUAL"}
+        self.properties["style"]._one_required = {"wxLC_ICON", "wxLC_SMALL_ICON", "wxLC_LIST", "wxLC_REPORT"}
 
     def create_widget(self):
-        self.widget = wx.ListCtrl(self.parent_window.widget, self.id, style=self.style)
+        self.widget = wx.ListCtrl(self.parent_window.widget, wx.ID_ANY, style=self.style)
         self._update_widget_properties(modified=None)
         self.widget.Bind(wx.EVT_LIST_COL_CLICK, self.on_set_focus)
         self.widget.Bind(wx.EVT_LIST_COL_END_DRAG, self._on_grid_col_resize)
@@ -48,8 +50,8 @@ class EditListCtrl(ManagedBase, EditStylesMixin):
         prop._check_for_user_modification(value)
         prop.update_display()
 
-    def finish_widget_creation(self):
-        ManagedBase.finish_widget_creation(self, sel_marker_parent=self.widget)
+    def finish_widget_creation(self, level):
+        ManagedBase.finish_widget_creation(self, level, sel_marker_parent=self.widget)
 
     def _set_name(self):
         if not self.widget: return
@@ -61,10 +63,12 @@ class EditListCtrl(ManagedBase, EditStylesMixin):
             elif self.columns:
                 compat.ListCtrl_SetStringItem(self.widget, 0, 0, "List Control: %s"%self.name)
 
-    def properties_changed(self, modified):
-        EditStylesMixin.properties_changed(self, modified)
+    def _properties_changed(self, modified, actions):
+        EditStylesMixin._properties_changed(self, modified, actions)
+        if "recreate2" in actions: return
         self._update_widget_properties(modified)
-        ManagedBase.properties_changed(self, modified)
+        if modified: actions.add("refresh")
+        ManagedBase._properties_changed(self, modified, actions)
         if not modified or "name" in modified:
             self._set_name()
 
@@ -99,18 +103,17 @@ class EditListCtrl(ManagedBase, EditStylesMixin):
                         compat.ListCtrl_InsertStringItem(self.widget, i, "")
     
             self._set_name()
-        self.widget.Refresh()
 
     def get_property_handler(self, name):
         if name == 'columns': return ColsHandler(self)
         return ManagedBase.get_property_handler(self, name)
 
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for EditListCtrl objects"
     name = parent.toplevel_parent.get_next_contained_name('list_ctrl_%d')
     with parent.frozen():
-        editor = EditListCtrl(name, parent, pos)
+        editor = EditListCtrl(name, parent, index)
         #list_ctrl.properties["style"].set_to_default()  # default is wxLC_ICON
         editor.properties["columns"].set( [['A', -1], ['B', -1], ['C', -1]] )
         editor.properties["rows_number"].set(10)
@@ -118,18 +121,13 @@ def builder(parent, pos):
         editor.properties["proportion"].set(1)
         editor.properties["flag"].set("wxEXPAND")
         if parent.widget: editor.create()
-    #sizer.set_item(list_ctrl.pos, 1, wx.EXPAND)
+    #sizer.set_item(list_ctrl.index, 1, wx.EXPAND)
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory function to build EditListCtrl objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        name = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditListCtrl(name, parent, pos, style=0)
+    return EditListCtrl(name, parent, index, 0)
 
 
 def initialize():
@@ -138,4 +136,4 @@ def initialize():
     common.widgets['EditListCtrl'] = builder
     common.widgets_from_xml['EditListCtrl'] = xml_builder
 
-    return common.make_object_button('EditListCtrl', 'list_ctrl.xpm')
+    return common.make_object_button('EditListCtrl', 'list_ctrl.png')

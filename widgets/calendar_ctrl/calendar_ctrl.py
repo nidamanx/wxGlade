@@ -28,9 +28,9 @@ class EditCalendarCtrl(ManagedBase, EditStylesMixin):
     _PROPERTIES = ["Widget", "default", "style"]
     PROPERTIES = ManagedBase.PROPERTIES + _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
 
-    def __init__(self, name, parent, pos):
+    def __init__(self, name, parent, index):
         # Initialise parent classes
-        ManagedBase.__init__(self, name, 'wxCalendarCtrl', parent, pos)
+        ManagedBase.__init__(self, name, parent, index)
         EditStylesMixin.__init__(self)
 
         # initialise instance properties
@@ -38,7 +38,7 @@ class EditCalendarCtrl(ManagedBase, EditStylesMixin):
 
     def create_widget(self):
         # TODO add all the other parameters for the CalendarCtrl especially style=self.style and the initial date
-        self.widget = CalendarCtrl(self.parent_window.widget, self.id, style=self.style)
+        self.widget = CalendarCtrl(self.parent_window.widget, wx.ID_ANY, style=self.style)
 
     # handle compatibility:
     @decorators.memoize
@@ -52,30 +52,24 @@ class EditCalendarCtrl(ManagedBase, EditStylesMixin):
             attr = getattr(wx.calendar, cn)
         return attr
 
-    def properties_changed(self, modified=None):
-        EditStylesMixin.properties_changed(self, modified)
-        ManagedBase.properties_changed(self, modified)
+    def _properties_changed(self, modified, actions):
+        EditStylesMixin._properties_changed(self, modified, actions)
+        ManagedBase._properties_changed(self, modified, actions)
 
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for EditCalendarCtrl objects"
     name = parent.toplevel_parent.get_next_contained_name('calendar_ctrl_%d')
     with parent.frozen():
-        editor = EditCalendarCtrl(name, parent, pos)
+        editor = EditCalendarCtrl(name, parent, index)
         editor.properties["style"].set_to_default()
         editor.check_defaults()
         if parent.widget: editor.create()
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
-    "factory to build EditCalendarCtrl objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        label = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditCalendarCtrl(label, parent, pos)
+def xml_builder(parser, base, name, parent, index):
+    return EditCalendarCtrl(name, parent, index)
 
 
 def initialize():
@@ -84,4 +78,4 @@ def initialize():
     common.widgets['EditCalendarCtrl'] = builder
     common.widgets_from_xml['EditCalendarCtrl'] = xml_builder
 
-    return common.make_object_button('EditCalendarCtrl', 'calendar_ctrl.xpm')
+    return common.make_object_button('EditCalendarCtrl', 'calendar_ctrl.png')

@@ -179,7 +179,7 @@
                                 <flag>wxALL|wxEXPAND</flag>
                                 <object class="wxBitmapButton" name="bitmap_button_icon1" base="EditBitmapButton">
                                     <style>wxBU_AUTODRAW|wxBU_EXACTFIT|wxBU_NOTEXT</style>
-                                    <bitmap>icon.xpm</bitmap>
+                                    <bitmap>icon.png</bitmap>
                                     <default>1</default>
                                 </object>
                             </object>
@@ -199,7 +199,7 @@
                                 <flag>wxALL|wxEXPAND</flag>
                                 <object class="wxBitmapButton" name="bitmap_button_icon2" base="EditBitmapButton">
                                     <style>wxBU_BOTTOM|wxBORDER_NONE</style>
-                                    <bitmap>icon.xpm</bitmap>
+                                    <bitmap>icon.png</bitmap>
                                     <disabled_bitmap>empty:32,32</disabled_bitmap>
                                     <default>1</default>
                                 </object>
@@ -408,7 +408,7 @@
                             <object class="sizeritem">
                                 <option>1</option>
                                 <border>5</border>
-                                <flag>wxALL|wxALIGN_CENTER</flag>
+                                <flag>wxALL|wxALIGN_CENTER_VERTICAL</flag>
                                 <object class="wxDatePickerCtrl" name="datepicker_ctrl_1" base="EditDatePickerCtrl">
                                     <style>wxDP_SHOWCENTURY</style>
                                 </object>
@@ -721,6 +721,7 @@
                                 <border>5</border>
                                 <flag>wxALL|wxEXPAND</flag>
                                 <object class="wxSplitterWindow" name="splitter_1" base="EditSplitterWindow">
+                                    <background>#ff0000</background>
                                     <min_pane_size>20</min_pane_size>
                                     <orientation>wxSPLIT_HORIZONTAL</orientation>
                                     <window_1>splitter_1_pane_1</window_1>
@@ -814,7 +815,7 @@
                             <object class="sizeritem">
                                 <option>1</option>
                                 <border>5</border>
-                                <flag>wxALL|wxEXPAND|wxALIGN_CENTER</flag>
+                                <flag>wxALL|wxEXPAND</flag>
                                 <object class="wxStaticBitmap" name="bitmap_empty" base="EditStaticBitmap">
                                     <bitmap>empty:32,32</bitmap>
                                     <attribute>1</attribute>
@@ -823,16 +824,16 @@
                             <object class="sizeritem">
                                 <option>1</option>
                                 <border>5</border>
-                                <flag>wxALL|wxEXPAND|wxALIGN_CENTER</flag>
+                                <flag>wxALL|wxEXPAND</flag>
                                 <object class="wxStaticBitmap" name="bitmap_file" base="EditStaticBitmap">
-                                    <bitmap>icon.xpm</bitmap>
+                                    <bitmap>icon.png</bitmap>
                                     <attribute>1</attribute>
                                 </object>
                             </object>
                             <object class="sizeritem">
                                 <option>1</option>
                                 <border>5</border>
-                                <flag>wxALL|wxEXPAND|wxALIGN_CENTER</flag>
+                                <flag>wxALL|wxEXPAND</flag>
                                 <object class="wxStaticBitmap" name="bitmap_nofile" base="EditStaticBitmap">
                                     <bitmap>non-existing.bmp</bitmap>
                                     <attribute>1</attribute>
@@ -841,7 +842,7 @@
                             <object class="sizeritem">
                                 <option>1</option>
                                 <border>5</border>
-                                <flag>wxALL|wxEXPAND|wxALIGN_CENTER</flag>
+                                <flag>wxALL|wxEXPAND</flag>
                                 <object class="wxStaticBitmap" name="bitmap_art" base="EditStaticBitmap">
                                     <bitmap>art:wxART_PRINT,wxART_OTHER,32,32</bitmap>
                                     <attribute>1</attribute>
@@ -850,7 +851,7 @@
                             <object class="sizeritem">
                                 <option>1</option>
                                 <border>5</border>
-                                <flag>wxALL|wxEXPAND|wxALIGN_CENTER</flag>
+                                <flag>wxALL|wxEXPAND</flag>
                                 <object class="wxStaticBitmap" name="bitmap_null" base="EditStaticBitmap">
                                     <attribute>1</attribute>
                                 </object>
@@ -858,7 +859,7 @@
                             <object class="sizeritem">
                                 <option>1</option>
                                 <border>5</border>
-                                <flag>wxALL|wxEXPAND|wxALIGN_CENTER</flag>
+                                <flag>wxALL|wxEXPAND</flag>
                                 <object class="wxStaticBitmap" name="bitmap_null_sized" base="EditStaticBitmap">
                                     <size>50, 50</size>
                                     <attribute>1</attribute>
@@ -929,7 +930,7 @@
                                 <flag>wxALL|wxEXPAND</flag>
                                 <object class="wxStaticText" name="label_1" base="EditStaticText">
                                     <foreground>#ff0000</foreground>
-                                    <style>wxALIGN_CENTER</style>
+                                    <style>wxALIGN_CENTER_HORIZONTAL</style>
                                     <label>red text (RGB)</label>
                                     <attribute>1</attribute>
                                 </object>
@@ -941,7 +942,7 @@
                                 <object class="wxStaticText" name="label_4" base="EditStaticText">
                                     <background>#ff0000</background>
                                     <tooltip>Background colour won't show, check documentation for more details</tooltip>
-                                    <style>wxALIGN_CENTER</style>
+                                    <style>wxALIGN_CENTER_HORIZONTAL</style>
                                     <label>black on red (RGB)</label>
                                     <attribute>1</attribute>
                                 </object>
@@ -954,7 +955,7 @@
                                     <background>#ff00ff</background>
                                     <foreground>#00ff00</foreground>
                                     <tooltip>Background colour won't show, check documentation for more details</tooltip>
-                                    <style>wxALIGN_CENTER</style>
+                                    <style>wxALIGN_CENTER_HORIZONTAL</style>
                                     <label>green on pink (RGB)</label>
                                     <attribute>1</attribute>
                                 </object>

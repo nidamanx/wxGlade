@@ -23,7 +23,7 @@ else:
 class EditHyperlinkCtrl(ManagedBase, EditStylesMixin):
     "Class to handle wxHyperlinkCtrl objects"
     WX_CLASS = "wxHyperlinkCtrl"
-    _PROPERTIES = ["Widget", "label", "style", "url", "attribute"]
+    _PROPERTIES = ["Widget", "url", "label", "style", "attribute"]
     PROPERTIES = ManagedBase.PROPERTIES + _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
     ManagedBase.MOVE_PROPERTY(PROPERTIES, "attribute", "name")
     _PROPERTY_HELP = { 'label':"Label of the hyperlink",
@@ -31,32 +31,30 @@ class EditHyperlinkCtrl(ManagedBase, EditStylesMixin):
                        "attribute":'Store instance as attribute of window class; e.g. self.bitmap_1 = wx.wxStaticBitmap'
                                    '(...)\nWithout this, you can not access the bitmap from your program.'}
 
-    def __init__(self, name, parent, label, pos):
+    def __init__(self, name, parent, index, label):
         # Initialise parent classes
-        ManagedBase.__init__(self, name, 'wxHyperlinkCtrl', parent, pos)
+        ManagedBase.__init__(self, name, parent, index)
         EditStylesMixin.__init__(self)
 
         # initialise instance properties
-        self.label = np.TextProperty(label, multiline=True)
+        self.label = np.TextProperty(label, multiline="grow")
         self.url   = np.TextProperty("")
         self.attribute = np.CheckBoxProperty(False, default_value=False)
 
     def create_widget(self):
-        self.widget = HyperlinkCtrl(self.parent_window.widget, self.id, self.label, self.url)
+        self.widget = HyperlinkCtrl(self.parent_window.widget, wx.ID_ANY, self.label, self.url, style=self.style)
 
-    def properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         if not modified or "label" in modified:
-            if self.widget:
-                self.widget.SetLabel(self.label)
-                self._set_widget_best_size()
-            common.app_tree.refresh(self, refresh_label=True, refresh_image=False)
+            if self.widget: self.widget.SetLabel(self.label)
+            if modified: actions.add("layout")
 
         if not modified or "url" in modified:
-            if self.widget:
-                self.widget.SetURL(self.url)
+            if self.widget: self.widget.SetURL(self.url)
+            if modified: actions.add("layout")
 
-        EditStylesMixin.properties_changed(self, modified)
-        ManagedBase.properties_changed(self, modified)
+        EditStylesMixin._properties_changed(self, modified, actions)
+        ManagedBase._properties_changed(self, modified, actions)
 
     # handle compatibility:
     @decorators.memoize
@@ -66,26 +64,31 @@ class EditHyperlinkCtrl(ManagedBase, EditStylesMixin):
         return getattr(module, cn)
 
 
-def builder(parent, pos):
+def builder(parent, index, url=None, label=None):
     "factory function for EditHyperlinkCtrl objects"
     name = parent.toplevel_parent.get_next_contained_name('hyperlink_%d')
+    if url is None and label is None:
+        import dialogs, misc
+        dlg = dialogs.WidgetStyleSelectionDialog(_("Hyperlink"), None, None, ["?URL", "?Label"])
+        with misc.disable_stay_on_top(common.adding_window or parent):
+            res = dlg.ShowModal()
+        url, label = dlg.get_options()
+        dlg.Destroy()
+        if res != wx.ID_OK: return
+
     with parent.frozen():
-        editor = EditHyperlinkCtrl(name, parent, name, pos)
+        editor = EditHyperlinkCtrl(name, parent, index, label or "")
         editor.properties["style"].set_to_default()
         editor.properties["attribute"].set(True)  # allow to modificate it later on...
+        editor.properties["url"].set(url or "")
         editor.check_defaults()
         if parent.widget: editor.create()
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory to build EditHyperlinkCtrl objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        name = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditHyperlinkCtrl(name, parent, "", pos)
+    return EditHyperlinkCtrl(name, parent, index, "")
 
 
 def initialize():
@@ -94,4 +97,4 @@ def initialize():
     common.widgets['EditHyperlinkCtrl'] = builder
     common.widgets_from_xml['EditHyperlinkCtrl'] = xml_builder
 
-    return common.make_object_button('EditHyperlinkCtrl', 'hyperlink_ctrl.xpm')
+    return common.make_object_button('EditHyperlinkCtrl', 'hyperlink_ctrl.png')

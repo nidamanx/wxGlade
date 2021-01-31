@@ -8,8 +8,7 @@ wxStaticLine objects
 """
 
 import wx
-import common, misc
-import wcodegen
+import common
 from edit_windows import ManagedBase, EditStylesMixin
 import new_properties as np
 
@@ -24,8 +23,8 @@ class EditStaticLine(ManagedBase, EditStylesMixin):
     _PROPERTY_LABELS = {"attribute":'Store as attribute'}
     _PROPERTY_HELP={"attribute":'Store instance as attribute of window class; e.g. self.line_1 = wx.wxStaticLine(...)\n'
                                 'Without this, you can not access the line from your program.'}
-    def __init__(self, name, parent, style, pos):
-        ManagedBase.__init__(self, name, 'wxStaticLine', parent, pos)
+    def __init__(self, name, parent, index, style):
+        ManagedBase.__init__(self, name, parent, index)
         EditStylesMixin.__init__(self)
 
         # initialise instance properties
@@ -33,27 +32,27 @@ class EditStaticLine(ManagedBase, EditStylesMixin):
         if style: self.properties["style"].set(style)
 
     def create_widget(self):
-        self.widget = wx.StaticLine(self.parent_window.widget, self.id, style=self.style)
+        self.widget = wx.StaticLine(self.parent_window.widget, wx.ID_ANY, style=self.style)
         self.widget.Bind(wx.EVT_LEFT_DOWN, self.on_set_focus)
 
-    def finish_widget_creation(self):
-        ManagedBase.finish_widget_creation(self)
+    def finish_widget_creation(self, level):
+        ManagedBase.finish_widget_creation(self, level)
         self.sel_marker.Reparent(self.parent_window.widget)
-        #del self.properties['font']
 
     def __getitem__(self, key):
         if key != 'font':
             return ManagedBase.__getitem__(self, key)
         return lambda: "", lambda v: None
 
-    def properties_changed(self, modified=None):
-        EditStylesMixin.properties_changed(self, modified)
-        ManagedBase.properties_changed(self, modified)
+    def _properties_changed(self, modified, actions):
+        EditStylesMixin._properties_changed(self, modified, actions)
+        ManagedBase._properties_changed(self, modified, actions)
 
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for editor objects from GUI"
-    dialog = wcodegen.WidgetStyleSelectionDialog(_('wxStaticLine'), _('Orientation'), 'wxLI_HORIZONTAL|wxLI_VERTICAL')
+    import dialogs, misc
+    dialog = dialogs.WidgetStyleSelectionDialog(_('wxStaticLine'), _('Orientation'), 'wxLI_HORIZONTAL|wxLI_VERTICAL')
     with misc.disable_stay_on_top(common.adding_window or parent):
         res = dialog.ShowModal()
     style = dialog.get_selection()
@@ -63,7 +62,7 @@ def builder(parent, pos):
 
     name = parent.toplevel_parent.get_next_contained_name('static_line_%d')
     with parent.frozen():
-        editor = EditStaticLine(name, parent, style, pos)
+        editor = EditStaticLine(name, parent, index, style)
         if parent.IS_SIZER and "orient" in parent.properties and parent.orient:
             if ( (parent.orient & wx.VERTICAL   and style=="wxLI_HORIZONTAL") or 
                  (parent.orient & wx.HORIZONTAL and style=="wxLI_VERTICAL") ):
@@ -72,14 +71,9 @@ def builder(parent, pos):
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "Factory to build editor objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        name = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditStaticLine(name, parent, '', pos)
+    return EditStaticLine(name, parent, index, '')
 
 
 def initialize():
@@ -87,4 +81,4 @@ def initialize():
     common.widget_classes['EditStaticLine'] = EditStaticLine
     common.widgets['EditStaticLine'] = builder
     common.widgets_from_xml['EditStaticLine'] = xml_builder
-    return common.make_object_button('EditStaticLine', 'static_line.xpm')
+    return common.make_object_button('EditStaticLine', 'static_line.png')

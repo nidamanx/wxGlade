@@ -49,6 +49,7 @@ class AffirmativePropertyD(np.ListBoxPropertyD):
 
 class EditDialog(BitmapMixin, TopLevelBase, EditStylesMixin):
     WX_CLASS = "wxDialog"
+    CHILDREN = -1
     _PROPERTIES =["Widget", "title", "icon", "centered", "affirmative", "escape",
                   "sizehints","menubar", "toolbar", "statusbar", "style"]
     PROPERTIES = TopLevelBase.PROPERTIES + _PROPERTIES + TopLevelBase.EXTRA_PROPERTIES
@@ -66,8 +67,8 @@ class EditDialog(BitmapMixin, TopLevelBase, EditStylesMixin):
                                "Select a different button to be used instead.\n"
                                "See SetAffirmativeId and SetEscapeId in the wx documentation."}
 
-    def __init__(self, name, parent, title, style=wx.DEFAULT_DIALOG_STYLE, klass='wxDialog'):
-        TopLevelBase.__init__(self, name, klass, parent, title=title)
+    def __init__(self, name, parent, klass, title, style=wx.DEFAULT_DIALOG_STYLE):
+        TopLevelBase.__init__(self, name, parent, klass, title)
         EditStylesMixin.__init__(self)
         self.properties["style"].set(style)
 
@@ -91,12 +92,11 @@ class EditDialog(BitmapMixin, TopLevelBase, EditStylesMixin):
 
         # change 2002-10-09: now we create a wxFrame instead of a wxDialog,
         # because the latter gives troubles I wasn't able to solve when using wxPython 2.3.3.1 :-/
-        self.widget = wx.Frame(parent, self.id, "", style=default_style)
+        self.widget = wx.Frame(parent, wx.ID_ANY, "", style=default_style)
         self.widget.SetBackgroundColour(compat.wx_SystemSettings_GetColour(wx.SYS_COLOUR_BTNFACE))
         self._set_widget_icon()
 
-    def finish_widget_creation(self):
-        TopLevelBase.finish_widget_creation(self)
+    def child_widgets_created(self, level):
         if not self.properties['size'].is_active():
             self.widget.SetSize((400, 300))
 
@@ -104,17 +104,17 @@ class EditDialog(BitmapMixin, TopLevelBase, EditStylesMixin):
         if self.icon:
             bitmap = self.get_preview_obj_bitmap(self.icon.strip())
         else:
-            xpm = os.path.join(config.icons_path, 'dialog.xpm')
+            xpm = os.path.join(config.icons_path, 'dialog.png')
             bitmap = misc.get_xpm_bitmap(xpm)
 
         icon = compat.wx_EmptyIcon()
         icon.CopyFromBitmap(bitmap)
         self.widget.SetIcon(icon)
 
-    def properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         if not modified or "icon" in modified and self.widget: self._set_widget_icon()
-        TopLevelBase.properties_changed(self, modified)
-        EditStylesMixin.properties_changed(self, modified)
+        TopLevelBase._properties_changed(self, modified, actions)
+        EditStylesMixin._properties_changed(self, modified, actions)
 
     def track_contained_name(self, old_name=None, new_name=None):
         TopLevelBase.track_contained_name(self, old_name, new_name)
@@ -122,27 +122,54 @@ class EditDialog(BitmapMixin, TopLevelBase, EditStylesMixin):
         self.properties["escape"].track_name( old_name, new_name )
 
 
-def builder(parent, pos):
+def builder(parent, index, klass=None, base=None, name=None):
     "factory function for EditDialog objects"
-    import window_dialog
-    base_classes = ['wxDialog', 'wxPanel']
-    klass = 'wxDialog' if common.root.language.lower()=='xrc' else 'MyDialog'
+    import window_dialog, edit_base, panel
+    if klass is None or base is None:
+        klass = 'wxDialog' if common.root.language.lower()=='xrc' else 'MyDialog'
 
-    dialog = window_dialog.WindowDialog(klass, base_classes, 'Select widget type', True)
-    res = dialog.show()
-    dialog.Destroy()
-    if res is None: return
-    klass, base = res
-    name = 'dialog'  if base == "wxDialog"  else  "panel"
-    name = dialog.get_next_name(name)
+        dialog = window_dialog.DialogOrPanelDialog(klass)
+        res = dialog.show()
+        add_sizer = dialog.get_options()[0]
+        button_names, button_types = dialog.get_selected_buttons()
+        dialog.Destroy()
+        if res is None: return
+        klass, base = res
+        name = 'dialog'  if base == "wxDialog"  else  "panel"
+        name = dialog.get_next_name(name)
+        interactive = True
+    else:
+        interactive = False
 
     if base == "wxDialog":
-        is_panel = False
-        editor = EditDialog(name, parent, name, "wxDEFAULT_DIALOG_STYLE", klass=klass)
+        editor = EditDialog(name, parent, klass, name, "wxDEFAULT_DIALOG_STYLE")
     else:
-        is_panel = True
-        import panel
-        editor = panel.EditTopLevelPanel(name, parent, klass=klass)
+        editor = panel.EditTopLevelPanel(name, parent, klass)
+
+    if interactive and add_sizer:
+        # add a default panel and vertical sizer to the frame; optionally add buttons if it's a Dialog
+        import edit_sizers, widgets.button.button
+        slots = 2  if base=="wxDialog" and button_names else  1
+        szr = edit_sizers._builder(editor, 0, slots=slots)
+        if base=="wxDialog":
+            button_szr = edit_sizers._builder(szr, 1, "StdDialogButtonSizer", slots=len(button_names))
+            button_szr.properties["border"].set(4)
+            button_szr.properties["flag"].set("wxALL|wxALIGN_RIGHT")
+            i = 0
+            for button_name, button_type in zip(button_names, button_types):
+                name = "button_%s"%button_name
+                label = "OK" if button_name=="OK" else button_name.capitalize()
+                button = widgets.button.button.EditButton(name, button_szr, i, label)
+                button.properties["stockitem"].set(button_name, activate=True)
+                if button_type=="A":
+                    editor.properties["affirmative"].set(name, activate=True)
+                    button.properties["default"].set(True)
+                if button_type=="C":
+                    editor.properties["escape"].set(name, activate=True)
+                i += 1
+    else:
+        # just add a slot
+        edit_base.Slot(editor, 0)
 
     editor.create()
     if base == "wxDialog":
@@ -151,32 +178,16 @@ def builder(parent, pos):
         editor.widget.GetParent().Show()  # the panel is created as child of a Frame
     editor.design.update_label()
     if wx.Platform == '__WXMSW__':
-        if not is_panel:
-            w = editor.widget
-        else:
-            w = editor.widget.GetParent()
+        w = editor.widget.GetTopLevelParent()
         w.CenterOnScreen()
         w.Raise()
-
-    import clipboard
-    editor.drop_target = clipboard.DropTarget(editor)
-    editor.widget.SetDropTarget(editor.drop_target)
-
-    # add a default vertical sizer
-    import edit_sizers
-    edit_sizers._builder(editor, 0)
 
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory to build EditDialog objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        name = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditDialog(name, parent, "", style=0)
+    return EditDialog(name, parent, "Dialog", "", 0)
 
 
 def initialize():
@@ -185,4 +196,4 @@ def initialize():
     common.widgets['EditDialog'] = builder
     common.widgets_from_xml['EditDialog'] = xml_builder
 
-    return common.make_object_button('EditDialog', 'dialog.xpm', 1, tip='Add a Dialog/Panel')
+    return common.make_object_button('EditDialog', 'dialog.png', 1, tip='Add a Dialog/Panel')

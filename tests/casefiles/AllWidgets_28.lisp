@@ -239,9 +239,8 @@
         (setf (slot-All-Widgets-toolbar obj) (wxToolBar_Create (slot-top-window obj) -1 -1 -1 -1 -1 wxTB_HORIZONTAL))
         (wxToolBar_AddTool (slot-All-Widgets-toolbar obj) wxID_UP (_"UpDown") wxArtProvider_GetBitmap(wxART_GO_UP wxART_OTHER wxSize_Create(32 32)) wxArtProvider_GetBitmap(wxART_GO_DOWN wxART_OTHER wxSize_Create(32 32)) wxITEM_CHECK (_"Up or Down") (_"Up or Down"))
         (wxToolBar_AddTool (slot-All-Widgets-toolbar obj) wxID_OPEN (_"Open") wxBitmap_Create(32 32) wxNullBitmap wxITEM_NORMAL (_"Open a new file") (_"Open a new file"))
-        (wxToolBar_Realize (slot-All-Widgets-toolbar obj))
-        (wxToolBar_Realize (slot-All-Widgets-toolbar obj))
         (wxFrame_SetToolBar (slot-top-window obj) (slot-All-Widgets-toolbar obj))
+        (wxToolBar_Realize (slot-All-Widgets-toolbar obj))
         ;;; Tool Bar end
         
         (setf (slot-sizer-1 obj) (wxGridSizer_Create 3 1 0 0))
@@ -254,7 +253,7 @@
         
         (setf (slot-sizer-13 obj) (wxGridSizer_Create 2 2 0 0))
         
-        (setf (slot-bitmap-button-icon1 obj) (wxBitmapButton_Create (slot-notebook-1-wxBitmapButton obj) wxID_ANY (wxBitmap_CreateLoad "icon.xpm" wxBITMAP_TYPE_ANY) -1 -1 -1 -1 wxBU_EXACTFIT|wxBU_NOTEXT|wxBU_AUTODRAW))
+        (setf (slot-bitmap-button-icon1 obj) (wxBitmapButton_Create (slot-notebook-1-wxBitmapButton obj) wxID_ANY (wxBitmap_CreateLoad "icon.png" wxBITMAP_TYPE_ANY) -1 -1 -1 -1 wxBU_EXACTFIT|wxBU_NOTEXT|wxBU_AUTODRAW))
         (slot-bitmap-button-icon1 obj).wxWindow_SetSize((slot-bitmap-button-icon1 obj).wxWindow_GetBestSize())
         (wxButton_SetDefault (slot-bitmap-button-icon1 obj))
         (wxSizer_AddWindow (slot-sizer-13 obj) (slot-bitmap-button-icon1 obj) 1 (logior wxALL wxEXPAND) 5 nil)
@@ -264,8 +263,8 @@
         (wxButton_SetDefault (slot-bitmap-button-empty1 obj))
         (wxSizer_AddWindow (slot-sizer-13 obj) (slot-bitmap-button-empty1 obj) 1 (logior wxALL wxEXPAND) 5 nil)
         
-        (setf (slot-bitmap-button-icon2 obj) (wxBitmapButton_Create (slot-notebook-1-wxBitmapButton obj) wxID_ANY (wxBitmap_CreateLoad "icon.xpm" wxBITMAP_TYPE_ANY) -1 -1 -1 -1 (logior wxBORDER_NONE wxBU_BOTTOM)))
-        (wxBitmapButton_SetBitmapDisabled (slot-(slot-bitmap-button-icon2 obj) obj) wxBitmap_Create(20 20))
+        (setf (slot-bitmap-button-icon2 obj) (wxBitmapButton_Create (slot-notebook-1-wxBitmapButton obj) wxID_ANY (wxBitmap_CreateLoad "icon.png" wxBITMAP_TYPE_ANY) -1 -1 -1 -1 (logior wxBORDER_NONE wxBU_BOTTOM)))
+        (wxBitmapButton_SetBitmapDisabled (slot-(slot-bitmap-button-icon2 obj) obj) wxBitmap_Create(32 32))
         (slot-bitmap-button-icon2 obj).wxWindow_SetSize((slot-bitmap-button-icon2 obj).wxWindow_GetBestSize())
         (wxButton_SetDefault (slot-bitmap-button-icon2 obj))
         (wxSizer_AddWindow (slot-sizer-13 obj) (slot-bitmap-button-icon2 obj) 1 (logior wxALL wxEXPAND) 5 nil)
@@ -360,7 +359,7 @@
         (setf (slot-sizer-17 obj) (wxBoxSizer_Create wxHORIZONTAL))
         
         (setf (slot-datepicker-ctrl-1 obj) (wxDatePickerCtrl_Create (slot-notebook-1-wxDatePickerCtrl obj) wxID_ANY -1 -1 -1 -1 wxDP_SHOWCENTURY))
-        (wxSizer_AddWindow (slot-sizer-17 obj) (slot-datepicker-ctrl-1 obj) 1 (logior wxALIGN_CENTER wxALL) 5 nil)
+        (wxSizer_AddWindow (slot-sizer-17 obj) (slot-datepicker-ctrl-1 obj) 1 (logior wxALIGN_CENTER_VERTICAL wxALL) 5 nil)
         
         (setf (slot-notebook-1-wxGauge obj) (wxPanel_Create (slot-notebook-1 obj) wxID_ANY -1 -1 -1 -1 wxTAB_TRAVERSAL))
         (wxNotebook_AddPage (slot-notebook-1 obj) (slot-notebook-1-wxGauge obj) (_"wxGauge") 1 -1)
@@ -534,16 +533,16 @@
         (setf (slot-sizer-11 obj) (wxBoxSizer_Create wxVERTICAL))
         
         (setf (slot-bitmap-empty obj) (wxStaticBitmap_Create (slot-notebook-1-wxStaticBitmap obj) wxID_ANY  wxBitmap_Create(32 32) -1 -1 -1 -1 0))
-        (wxSizer_AddWindow (slot-sizer-11 obj) (slot-bitmap-empty obj) 1 (logior wxALIGN_CENTER wxALL wxEXPAND) 5 nil)
+        (wxSizer_AddWindow (slot-sizer-11 obj) (slot-bitmap-empty obj) 1 (logior wxALL wxEXPAND) 5 nil)
         
-        (setf (slot-bitmap-file obj) (wxStaticBitmap_Create (slot-notebook-1-wxStaticBitmap obj) wxID_ANY  (wxBitmap_CreateLoad "icon.xpm" wxBITMAP_TYPE_ANY) -1 -1 -1 -1 0))
-        (wxSizer_AddWindow (slot-sizer-11 obj) (slot-bitmap-file obj) 1 (logior wxALIGN_CENTER wxALL wxEXPAND) 5 nil)
+        (setf (slot-bitmap-file obj) (wxStaticBitmap_Create (slot-notebook-1-wxStaticBitmap obj) wxID_ANY  (wxBitmap_CreateLoad "icon.png" wxBITMAP_TYPE_ANY) -1 -1 -1 -1 0))
+        (wxSizer_AddWindow (slot-sizer-11 obj) (slot-bitmap-file obj) 1 (logior wxALL wxEXPAND) 5 nil)
         
         (setf (slot-bitmap-nofile obj) (wxStaticBitmap_Create (slot-notebook-1-wxStaticBitmap obj) wxID_ANY  (wxBitmap_CreateLoad "non-existing.bmp" wxBITMAP_TYPE_ANY) -1 -1 -1 -1 0))
-        (wxSizer_AddWindow (slot-sizer-11 obj) (slot-bitmap-nofile obj) 1 (logior wxALIGN_CENTER wxALL wxEXPAND) 5 nil)
+        (wxSizer_AddWindow (slot-sizer-11 obj) (slot-bitmap-nofile obj) 1 (logior wxALL wxEXPAND) 5 nil)
         
         (setf (slot-bitmap-art obj) (wxStaticBitmap_Create (slot-notebook-1-wxStaticBitmap obj) wxID_ANY  wxArtProvider_GetBitmap(wxART_PRINT wxART_OTHER wxSize_Create(32 32)) -1 -1 -1 -1 0))
-        (wxSizer_AddWindow (slot-sizer-11 obj) (slot-bitmap-art obj) 1 (logior wxALIGN_CENTER wxALL wxEXPAND) 5 nil)
+        (wxSizer_AddWindow (slot-sizer-11 obj) (slot-bitmap-art obj) 1 (logior wxALL wxEXPAND) 5 nil)
         
         (setf (slot-notebook-1-wxStaticLine obj) (wxPanel_Create (slot-notebook-1 obj) wxID_ANY -1 -1 -1 -1 wxTAB_TRAVERSAL))
         (wxNotebook_AddPage (slot-notebook-1 obj) (slot-notebook-1-wxStaticLine obj) (_"wxStaticLine") 1 -1)
@@ -570,16 +569,16 @@
         
         (setf (slot-grid-sizer-3 obj) (wxGridSizer_Create 1 3 0 0))
         
-        (setf (slot-label-1 obj) (wxStaticText_Create (slot-notebook-1-wxStaticText obj) wxID_ANY (_"red text (RGB)") -1 -1 -1 -1 wxALIGN_CENTER))
+        (setf (slot-label-1 obj) (wxStaticText_Create (slot-notebook-1-wxStaticText obj) wxID_ANY (_"red text (RGB)") -1 -1 -1 -1 wxALIGN_CENTER_HORIZONTAL))
         (wxWindow_SetForegroundColour (slot-label-1 obj) (wxColour_CreateRGB 255, 0, 0))
         (wxSizer_AddWindow (slot-grid-sizer-3 obj) (slot-label-1 obj) 1 (logior wxALL wxEXPAND) 5 nil)
         
-        (setf (slot-label-4 obj) (wxStaticText_Create (slot-notebook-1-wxStaticText obj) wxID_ANY (_"black on red (RGB)") -1 -1 -1 -1 wxALIGN_CENTER))
+        (setf (slot-label-4 obj) (wxStaticText_Create (slot-notebook-1-wxStaticText obj) wxID_ANY (_"black on red (RGB)") -1 -1 -1 -1 wxALIGN_CENTER_HORIZONTAL))
         (wxWindow_SetBackgroundColour (slot-label-4 obj) (wxColour_CreateRGB 255, 0, 0))
         (wxWindow_SetToolTip (slot-label-4 obj)(_"Background colour won't show, check documentation for more details"))
         (wxSizer_AddWindow (slot-grid-sizer-3 obj) (slot-label-4 obj) 1 (logior wxALL wxEXPAND) 5 nil)
         
-        (setf (slot-label-5 obj) (wxStaticText_Create (slot-notebook-1-wxStaticText obj) wxID_ANY (_"green on pink (RGB)") -1 -1 -1 -1 wxALIGN_CENTER))
+        (setf (slot-label-5 obj) (wxStaticText_Create (slot-notebook-1-wxStaticText obj) wxID_ANY (_"green on pink (RGB)") -1 -1 -1 -1 wxALIGN_CENTER_HORIZONTAL))
         (wxWindow_SetBackgroundColour (slot-label-5 obj) (wxColour_CreateRGB 255, 0, 255))
         (wxWindow_SetForegroundColour (slot-label-5 obj) (wxColour_CreateRGB 0, 255, 0))
         (wxWindow_SetToolTip (slot-label-5 obj)(_"Background colour won't show, check documentation for more details"))

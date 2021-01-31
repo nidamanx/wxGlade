@@ -44,19 +44,20 @@ class FileDropTarget(wx.FileDropTarget):
             wx.MessageBox( _("Please only drop one file at a time"), "wxGlade", wx.ICON_ERROR )
             return False
         if not filenames or not os.path.exists(filenames[0]): return False
-        # first check whether it's being dropped on the property panel
+        # find control under drop point; this does also work if a dialog is open
         x0,y0 = self.parent.GetClientAreaOrigin()
         screen_xy = self.parent.ClientToScreen( (x-x0,y-y0) )
         ctrl = c = wx.FindWindowAtPoint( screen_xy )
+        # go up the hierarchy and find a widget with an 'on_drop_files' method
         while c:
-            if c is self.parent.property_panel:
-                handled = self.parent.property_panel.on_drop_files(screen_xy, ctrl, filenames[0])
-                if handled:
-                    return True
-                else:
-                    break
+            if hasattr(c, "on_drop_files"):
+                handled = c.on_drop_files(screen_xy, ctrl, filenames)
+                if handled: return True
+            if c is self.parent.property_panel: break
+            if isinstance(c, wx.Dialog): return False  # when a dialog is open, don't open wxg or xrc files
             c = c.GetParent()
 
+        # not handled by a control; try to open .wxg or .XRC file
         if not self.parent.ask_save(): return False
 
         path = filenames[0]
@@ -96,7 +97,7 @@ class wxGladePropertyPanel(wx.Panel):
         self.SetSizer(sizer)
         self.Layout()
 
-    def on_drop_files(self, screen_xy, ctrl, filename):
+    def on_drop_files(self, screen_xy, ctrl, filenames):
         if not self.current_widget: return False
         for p_name in self.current_widget.PROPERTIES:
             if p_name[0].isupper(): continue
@@ -104,7 +105,7 @@ class wxGladePropertyPanel(wx.Panel):
             if not prop or not hasattr(prop, "on_drop_file"): continue
             if ( hasattr(prop, "label_ctrl") and prop.label_ctrl.ScreenRect.Contains( screen_xy ) and
                  prop.label_ctrl.IsShownOnScreen() ) or prop.has_control(ctrl):
-                return prop.on_drop_file(filename)
+                return prop.on_drop_file(filenames[0])
         return False
 
     ####################################################################################################################
@@ -115,6 +116,7 @@ class wxGladePropertyPanel(wx.Panel):
             return
         self.next_widget = widget
         if self.current_widget:
+            # this might not be executed if there was an error during creation of the property editors
             for editor in self.current_widget.properties.values():
                 editor.destroy_editor()
             self.current_widget = None   # delete the reference
@@ -132,16 +134,18 @@ class wxGladePropertyPanel(wx.Panel):
 
         self.current_widget = None
         self.create_editor(edit_widget)
+        # this code might not be reached in case of an error
         self.current_widget = edit_widget
         if edit_widget:
             # XXX set status bar
-            self.heading.SetValue( _('Properties - %s - <%s>:') % (edit_widget.klass, edit_widget.name) )
+            klass = edit_widget.get_prop_value("class", edit_widget.WX_CLASS)
+            self.heading.SetValue( _('Properties - %s - <%s>:') % (klass, edit_widget.name) )
         else:
             self.heading.SetValue( _('Properties') )
 
     def create_editor(self, edit_widget):
         # fill the frame with a notebook of property editors
-        
+
         if not self.notebook: return  # already deleted
         self.current_widget_class = edit_widget.__class__
         if wx.Platform != "__WXMSW__" :
@@ -153,10 +157,10 @@ class wxGladePropertyPanel(wx.Panel):
         select_page = self.pagenames[selection]  if selection!=-1  else None
 
         # clear notebook pages
-        if self.notebook.PageCount:
-            #self.notebook.DeleteAllPages()  # deletes also the windows on the pages
-            while self.notebook.PageCount:
-                self.notebook.DeletePage(self.notebook.PageCount-1)
+        #self.notebook.DeleteAllPages()  # deletes also the windows on the pages
+        while self.notebook.PageCount:
+            print("DELETE PAGE; new widget:", edit_widget)
+            self.notebook.DeletePage(self.notebook.PageCount-1)
 
         self.pagenames = pagenames = []
         self.sizers = []
@@ -262,16 +266,13 @@ class wxGladePropertyPanel(wx.Panel):
             # Mac OS: inital event on creation
             event.Skip()
 
-    def flush(self):
-        np.flush_current_property()
 
-
+# don't use any more for application; causes crashes on Cent OS 7; still used when testing
 class wxGladeArtProvider(wx.ArtProvider):
     def CreateBitmap(self, artid, client, size):
         if wx.Platform == '__WXGTK__' and artid == wx.ART_FOLDER:
-            return wx.Bitmap(os.path.join(config.icons_path, 'closed_folder.xpm'), wx.BITMAP_TYPE_XPM)
+            return wx.Bitmap(os.path.join(config.icons_path, 'closed_folder.png'))
         return wx.NullBitmap
-
 
 
 class wxGladePalettePanel(wx.Panel):
@@ -286,15 +287,24 @@ class wxGladePalettePanel(wx.Panel):
         if not config.use_gui: return
         self.all_togglebuttons = []  # used by reset_togglebuttons
 
+        # for keyboard navigation:
+        self._id_to_coordinate = {}
+        self._ids_by_row = []
+        self._section_to_row = {}
+
         # build the palette for all_widgets
         sizer = wx.FlexGridSizer(0, 2, 0, 0)
         maxlen = max([len(all_widgets[sect]) for sect in all_widgets])  # the maximum number of buttons in a section
-        for section in all_widgets:
+        for row, section in enumerate(all_widgets):
+            self._section_to_row[section] = row
+            self._ids_by_row.append([])
             if section:
                 label = wx.StaticText(self, -1, "%s:" % section.replace('&', '&&'))
                 sizer.Add( label, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 2 )
             bsizer = wx.BoxSizer()
-            for button in all_widgets[section]:
+            for col, button in enumerate(all_widgets[section]):
+                self._ids_by_row[-1].append(button.Id)
+                self._id_to_coordinate[button.Id] = (row,col)
                 bsizer.Add(button, flag=wx.ALL, border=1)
                 if isinstance(button, wx.ToggleButton):
                     self.all_togglebuttons.append(button)
@@ -305,6 +315,7 @@ class wxGladePalettePanel(wx.Panel):
             self._highlight_colour = None
         else:
             self._highlight_colour = wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT)
+        self.Bind(wx.EVT_CHAR_HOOK, self.on_char)
 
     def reset_togglebuttons(self, keep=None):
         # un-toggle all buttons except keep
@@ -317,31 +328,66 @@ class wxGladePalettePanel(wx.Panel):
                 button.SetBackgroundColour(wx.NullColour)
             if button.GetValue(): button.SetValue(False)
 
-        # on platforms other than Windows, we'll set the ToggleButton background colour to indicate the selection
-        if wx.Platform == "__WXMSW__":
-            self._highlight_colour = None
+    def on_char(self, event):
+        key = (event.GetKeyCode(), event.GetModifiers())    # modifiers: 1,2,4 for Alt, Ctrl, Shift
+        if key[1]: return event.Skip()
+
+        focused = self.FindFocus()
+        if not focused or not focused.Id in self._id_to_coordinate:
+            return event.Skip()
+
+        row, col = self._id_to_coordinate[focused.Id]
+        new_row = new_col = None
+        if key[0]==wx.WXK_UP:
+            if row>0: new_row = row-1
+        elif key[0]==wx.WXK_DOWN:
+            if row < len(self._ids_by_row)-1: new_row = row+1
+        elif key[0]==wx.WXK_LEFT:
+            if col>0: new_col = col-1
+        elif key[0]==wx.WXK_RIGHT:
+            if col < len(self._ids_by_row[row])-1: new_col = col+1
+        elif key[0]==wx.WXK_HOME:
+            new_col = 0
+        elif key[0]==wx.WXK_END:
+            new_col = len(self._ids_by_row[row])-1
+        elif key[0]==wx.WXK_PAGEUP:
+            new_row = 0
+        elif key[0]==wx.WXK_PAGEDOWN:
+            new_row = len(self._ids_by_row)-1
+        elif (ord("A") <= key[0] <= ord("Z")) and chr(key[0]) in misc.palette_hotkeys:
+            section = misc.palette_hotkeys[chr(key[0])]
+            new_row = self._section_to_row[section]
+            new_col = 0
         else:
-            self._highlight_colour = wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT)
+            return event.Skip()
 
-    def reset_togglebuttons(self, keep=None):
-        # un-toggle all buttons except keep
-        for button in self.all_togglebuttons:
-            if keep is not None and button is keep:
-                if self._highlight_colour:
-                    button.SetBackgroundColour(self._highlight_colour)
-                continue
-            if self._highlight_colour and button.GetBackgroundColour()==self._highlight_colour:
-                button.SetBackgroundColour(wx.NullColour)
-            if button.GetValue(): button.SetValue(False)
+        if new_row is None and new_col is None:
+            # limits hit
+            wx.Bell()
+        else:
+            if new_col is None: new_col = min(col, len(self._ids_by_row[new_row])-1)
+            if new_row is None: new_row = row
+            focus = self.FindWindowById(self._ids_by_row[new_row][new_col])
+            if focus: focus.SetFocus()
+
+import shell_frame
+class ShellFrame(shell_frame.ShellFrame):
+    def on_btn_assign(self, event):
+        # insert a variable assignment
+        widget = misc.focused_widget
+        if not widget:
+            event.Skip()
+            return
+        path = widget.get_path()
+        command = 'widget = common.root.find_widget_from_path("%s")\r\n'%path
+        #self.shell.push(command) # or .write ?
+        self.shell.write(command)
 
 
 class wxGladeFrame(wx.Frame):
     "Main frame of wxGlade"
     def __init__(self):
-        self._logger = logging.getLogger(self.__class__.__name__)
         version = config.version
-        if version=='"faked test version"':
-            version = "%s on Python %d.%d"%(version, sys.version_info.major, sys.version_info.minor)
         pos, size, layout = self.init_layout_settings()
         wx.Frame.__init__(self, None, -1, "wxGlade v%s" % version, pos=pos, size=size,
                           style=wx.DEFAULT_FRAME_STYLE, name='MainFrame')
@@ -506,7 +552,7 @@ class wxGladeFrame(wx.Frame):
         item = append_menu_item(edit_menu, -1, _('Template Manager...'))
         misc.bind_menu_item(self, item, self.manage_templates)
 
-        item = append_menu_item(edit_menu, wx.ID_PREFERENCES, _('Preferences...'), "prefs.xpm")
+        item = append_menu_item(edit_menu, wx.ID_PREFERENCES, _('Preferences...'), "prefs.png")
         misc.bind_menu_item(self, item, self.edit_preferences)
 
         menu_bar.Append(edit_menu, _("&Edit"))
@@ -514,13 +560,13 @@ class wxGladeFrame(wx.Frame):
         # Windows menu: layout and focus ===============================================================================
         view_menu = wx.Menu(style=wx.MENU_TEAROFF)
 
-        i = append_menu_item(view_menu, -1, _("Layout &1: Tree\tAlt-1"), "../layout1.xpm")
+        i = append_menu_item(view_menu, -1, _("Layout &1: Tree\tAlt-1"), "../layout1.png")
         misc.bind_menu_item(self, i, self.switch_layout, 0)
         
-        i = append_menu_item(view_menu, -1, _("Layout &2: Properties\tAlt-2"), "../layout2.xpm")
+        i = append_menu_item(view_menu, -1, _("Layout &2: Properties\tAlt-2"), "../layout2.png")
         misc.bind_menu_item(self, i, self.switch_layout, 1)
 
-        i = append_menu_item(view_menu, -1, _("Layout &3: Narrow\tAlt-3"), "../layout3.xpm")
+        i = append_menu_item(view_menu, -1, _("Layout &3: Narrow\tAlt-3"), "../layout3.png")
         misc.bind_menu_item(self, i, self.switch_layout, 2)
         view_menu.AppendSeparator()
 
@@ -529,6 +575,9 @@ class wxGladeFrame(wx.Frame):
 
         i = append_menu_item(view_menu, -1, _("Focus &Properties\tF3"))
         misc.bind_menu_item(self, i, self.show_props_window )
+
+        i = append_menu_item(view_menu, -1, _("Focus Pa&lette\tF4"))
+        misc.bind_menu_item(self, i, self.show_palette )
 
         # submenu focus sections >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         view_props_menu = wx.Menu()
@@ -543,13 +592,13 @@ class wxGladeFrame(wx.Frame):
         view_menu.AppendSubMenu(view_props_menu, _("Focus Properties &Section"))
         view_menu.AppendSeparator() # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-        i = append_menu_item(view_menu, -1, _("Show/Hide &Design\tF4"))
+        i = append_menu_item(view_menu, -1, _("Show/Hide &Design\tF6"))
         misc.bind_menu_item(self, i, self.show_design_window)
         self._m_pin_design_window = i = append_menu_item(view_menu, -1, _("&Pin &Design\tCtrl-P"),  kind=wx.ITEM_CHECK)
         misc.bind_menu_item(self, i, self.pin_design_window)
         view_menu.AppendSeparator() # ----------------------------------------------------------------------------------
 
-        item = append_menu_item(view_menu, wx.ID_REFRESH, _("&Refresh Preview\tF5"), "refresh.xpm")
+        item = append_menu_item(view_menu, wx.ID_REFRESH, _("&Refresh Preview\tF5"), "refresh.png")
         misc.bind_menu_item(self, item, self.preview)
 
         menu_bar.Append(view_menu, _("&Windows"))
@@ -570,6 +619,11 @@ class wxGladeFrame(wx.Frame):
         i = append_menu_item(help_menu, -1, _('Releases'))
         misc.bind_menu_item(self, i, self.show_releases)
         help_menu.AppendSeparator() # ----------------------------------------------------------------------------------
+
+        if config.debugging:
+            i = append_menu_item(help_menu, -1, 'Shell\tF7')
+            misc.bind_menu_item(self, i, self.create_shell_window)
+            help_menu.AppendSeparator()
 
         item = append_menu_item(help_menu, wx.ID_ABOUT, _('About'), wx.ART_INFORMATION)
         misc.bind_menu_item(self, item, self.show_about_box)
@@ -602,7 +656,6 @@ class wxGladeFrame(wx.Frame):
         self.Bind(wx.EVT_MENU_RANGE, self.open_from_history, id=wx.ID_FILE1, id2=wx.ID_FILE1+num_entries-1)
 
     def _add_label_tool(self, tb, size, id, label, bmp, itemtype, msg, msg_long=None):
-        os.path.join(config.icons_path, "layout2.xpm")
         ADD = tb.AddLabelTool  if compat.IS_CLASSIC else  tb.AddTool
         if compat.IS_PHOENIX:
             method = getattr(tb, "AddTool")
@@ -613,7 +666,7 @@ class wxGladeFrame(wx.Frame):
             bmp = wx.Bitmap( os.path.join(config.icons_path, bmp) )
         else:
             # a wx.ART_... constant
-            bmp = wx.ArtProvider.GetBitmap(bmp, wx.ART_OTHER, size)
+            bmp = wx.ArtProvider.GetBitmap(bmp, wx.ART_TOOLBAR, size)
         return ADD(-1, _(label), bmp, wx.NullBitmap, itemtype, _(msg), _(msg_long or msg))
 
     def create_toolbar(self):
@@ -625,48 +678,51 @@ class wxGladeFrame(wx.Frame):
         self.SetToolBar(tb)
         size = (21,21)
         add = functools.partial(self._add_label_tool, tb, size)
-        t = add( wx.ID_NEW, "New", wx.ART_NEW, wx.ITEM_NORMAL, "Open a new file (Ctrl+N)")
+        t = add( wx.ID_NEW, "New", wx.ART_NEW, wx.ITEM_NORMAL, "Start a new file (Ctrl+N)")
         self.Bind(wx.EVT_TOOL, self.new_app, t)
         
-        t = add( wx.ID_OPEN, "Open", wx.ART_FILE_OPEN, wx.ITEM_NORMAL, "Open a file (Ctrl+O)")
+        t = add( wx.ID_OPEN, "Open", wx.ART_FILE_OPEN, wx.ITEM_NORMAL, "Open an existing file (Ctrl+O)")
         self.Bind(wx.EVT_TOOL, self.open_app, t)
         
         t = add( wx.ID_SAVE, "Save", wx.ART_FILE_SAVE, wx.ITEM_NORMAL, "Save file (Ctrl+S)")
         self.Bind(wx.EVT_TOOL, self.save_app, t)
 
         if config.debugging and hasattr(wx, "ART_PLUS"):
-            t = add( wx.ID_SAVE, "Add", wx.ART_PLUS, wx.ITEM_NORMAL, "Add widget (Ctrl+A)")
+            t = add( -1, "Add", wx.ART_PLUS, wx.ITEM_NORMAL, "Add widget (Ctrl+A)")
             t.Enable(False)
 
             # XXX switch between wx.ART_DELETE for filled slots and wx.ART_MINUS for empty slots
-            t = add( wx.ID_SAVE, "Remove", wx.ART_MINUS, wx.ITEM_NORMAL, "Add widget (Ctrl+A)")
+            t = add( -1, "Remove", wx.ART_MINUS, wx.ITEM_NORMAL, "Add widget (Ctrl+A)")
             t.Enable(False)
 
             tb.AddSeparator()
 
-        self._tool_redo = t = add( wx.ID_SAVE, "Re-do", wx.ART_REDO, wx.ITEM_NORMAL, "Re-do (Ctrl+Y)" )
+        self._tool_redo = t = add( wx.ID_REDO, "Re-do", wx.ART_REDO, wx.ITEM_NORMAL, "Re-do (Ctrl+Y)" )
         t.Enable(False)
-        self._tool_repeat = t = add( wx.ID_SAVE, "Repeat", wx.ART_REDO, wx.ITEM_NORMAL, "Repeat  (Ctrl+R)" )
+        self.Bind(wx.EVT_TOOL, lambda evt: common.history.redo(misc.focused_widget), t)
+        
+        self._tool_repeat = t = add( -1, "Repeat", wx.ART_REDO, wx.ITEM_NORMAL, "Repeat (Ctrl+R)" )
         t.Enable(False)
+        self.Bind(wx.EVT_TOOL, lambda evt: common.history.repeat(misc.focused_widget), t)
 
         tb.AddSeparator()
         t = add(-1, "Generate Code", wx.ART_EXECUTABLE_FILE, wx.ITEM_NORMAL, "Generate Code (Ctrl+G)" )
         self.Bind(wx.EVT_TOOL, lambda event: common.root.generate_code(), t)
         tb.AddSeparator()
         
-        t1 = add(-1, "Layout 1", "layout1.xpm", wx.ITEM_RADIO, "Switch layout: Tree", 
+        t1 = add(-1, "Layout 1", "layout1.png", wx.ITEM_RADIO, "Switch layout: Tree", 
                                                                "Switch layout: Palette and Properties left, Tree right")
         self.Bind(wx.EVT_TOOL, lambda event: self.switch_layout(0), t1)
-        t2 = add(-1, "Layout 2", "layout2.xpm", wx.ITEM_RADIO,"Switch layout: Properties",
+        t2 = add(-1, "Layout 2", "layout2.png", wx.ITEM_RADIO,"Switch layout: Properties",
                                                               "Switch layout: Palette and Tree top,  Properties bottom") 
         self.Bind(wx.EVT_TOOL, lambda event: self.switch_layout(1), t2)
-        t3 = add(-1, "Layout 3", "layout3.xpm", wx.ITEM_RADIO, "Switch layout: narrow",
+        t3 = add(-1, "Layout 3", "layout3.png", wx.ITEM_RADIO, "Switch layout: narrow",
                                                      "Switch layout: Palette, Tree and Properties on top of each other")
         self.Bind(wx.EVT_TOOL, lambda event: self.switch_layout(2), t3)
         self._layout_tools = [t1,t2,t3]
 
         tb.AddSeparator()
-        t = add(-1, "Pin Design Window", "pin_design.xpm", wx.ITEM_CHECK, "Pin Design Window",
+        t = add(-1, "Pin Design Window", "pin_design.png", wx.ITEM_CHECK, "Pin Design Window",
                                                                           "Pin Design Window to stay on top")
         self.Bind(wx.EVT_TOOL, lambda event: self.pin_design_window(), t)
         self._t_pin_design_window = t
@@ -693,7 +749,7 @@ class wxGladeFrame(wx.Frame):
         elif not res:
             self.autosave_timer.Stop()
             config.preferences.autosave = False
-            self._logger.info(_('Disable autosave function permanently'))
+            logging.info(_('Disable autosave function permanently'))
             wx.MessageBox(
                 _('The autosave function failed. It has been disabled\n'
                   'permanently due to this error. Use the preferences\n'
@@ -743,6 +799,10 @@ class wxGladeFrame(wx.Frame):
         if toplevel is not None:
             toplevel.preview(refresh=True)
 
+    def show_palette(self):
+        if self.IsIconized(): self.Iconize(False)
+        self.palette.SetFocus()
+
     def show_tree(self):
         if self.IsIconized(): self.Iconize(False)
         common.app_tree.SetFocus()
@@ -750,8 +810,6 @@ class wxGladeFrame(wx.Frame):
     def show_props_window(self, section=None):
         # XXX implement: if a section is active already, then go to first property of the page
         if not self.property_panel.notebook: return
-        # current page: self.property_panel.notebook.Selection
-        # self.property_panel.notebook.FindWindowByName("Layout")
         if self.IsIconized(): self.Iconize(False)
         self.property_panel.pagenames
         if not section:
@@ -759,7 +817,19 @@ class wxGladeFrame(wx.Frame):
         else:
             if not section in self.property_panel.pagenames:
                 return
-            self.property_panel.notebook.ChangeSelection( self.property_panel.pagenames.index(section) )
+            i = self.property_panel.pagenames.index(section)
+            if self.property_panel.notebook.GetSelection() != i:
+                self.property_panel.notebook.ChangeSelection(i)
+            else:
+                self.property_panel.notebook.SetFocus()
+                # try to set the focus if the widget has changed; this is not yet implemented for many property types
+                widget = self.property_panel.current_widget
+                if ( widget and (widget is not np.current_property.owner) and
+                     section in widget.PROPERTIES ):
+                    i_p = widget.PROPERTIES.index(section) + 1
+                    if i_p<len(widget.PROPERTIES):
+                        prop = widget.properties.get(widget.PROPERTIES[i_p])
+                        if prop: prop.set_focus()
         self.Raise()
 
     def show_design_window(self):
@@ -800,6 +870,11 @@ class wxGladeFrame(wx.Frame):
                 frame.Iconize(False)
             else:
                 toplevel.widget.Raise()
+
+    def create_shell_window(self):
+        common.shell = ShellFrame(None)
+        if misc.focused_widget: common.shell.txt_path.SetValue( misc.focused_widget.get_path() )
+        common.shell.Show()
 
     # status bar for message display ###################################################################################
     def create_statusbar(self):
@@ -909,7 +984,8 @@ class wxGladeFrame(wx.Frame):
         if not editor: return
         misc.set_focused_widget(editor)
         if editor is common.root: return
-        editor.toplevel_parent.create_widgets()
+        editor.toplevel_parent.create()
+
         common.app_tree.ExpandAllChildren(editor.item)
 
         if not position or not editor.widget: return
@@ -917,7 +993,6 @@ class wxGladeFrame(wx.Frame):
 
     def _open_app(self, filename, use_progress_dialog=True, add_to_history=True):
         "Load a new wxGlade project"
-
         error_msg = None
         infile = None
 
@@ -925,11 +1000,12 @@ class wxGladeFrame(wx.Frame):
 
         common.root.clear()
         common.root.init()
+        common.app_tree.DeleteChildren(common.root.item)
         common.app_tree.auto_expand = False  # disable auto-expansion of nodes
 
         try:
             try:
-                self._logger.info( _('Read wxGlade project from file "%s"'), filename )
+                logging.info( _('Read wxGlade project from file "%s"'), filename )
                 input_file_version = None
 
                 if not isinstance(filename, list):
@@ -947,7 +1023,7 @@ class wxGladeFrame(wx.Frame):
                             match = version_re.match( infile.readline() )
                             if match:
                                 major, minor, sub, extension = match.groups()
-                                input_file_version = (int(major), int(minor), int(major), extension)
+                                input_file_version = (int(major), int(minor), int(sub), extension)
                                 break
                         infile.seek(0)
 
@@ -998,12 +1074,12 @@ class wxGladeFrame(wx.Frame):
 
         common.app_tree.Expand(common.root.item)
         if common.root.is_template:
-            self._logger.info(_("Template loaded"))
+            logging.info(_("Template loaded"))
             common.root.template_data = template.Template(filename)
             common.root.filename = None
 
         end = time.time()
-        self._logger.info(_('Loading time: %.5f'), end - start)
+        logging.info(_('Loading time: %.5f'), end - start)
 
         common.root.saved = True
         #common.property_panel.Raise()
@@ -1025,7 +1101,7 @@ class wxGladeFrame(wx.Frame):
 
     def save_app(self, event=None):
         "saves a wxGlade project onto an xml file"
-        self.property_panel.flush()
+        np.flush_current_property()
         if not common.root.filename or common.root.is_template:
             self.save_app_as()
         else:
@@ -1063,7 +1139,7 @@ class wxGladeFrame(wx.Frame):
                               wildcard="wxGlade files (*.wxg)|*.wxg|wxGlade Template files (*.wgt) |*.wgt|"
                               "XML files (*.xml)|*.xml|All files|*",
                               flags=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
-                              default_filename=common.root.filename or self.cur_dir)
+                              default_filename=common.root.filename or (self.cur_dir+os.sep+"wxglade.wxg"))
         if not fn: return
 
         # check for file extension and add default extension if missing
@@ -1192,7 +1268,7 @@ class wxGladeFrame(wx.Frame):
     # user interface helpers
     def _set_icon(self):
         icon = compat.wx_EmptyIcon()
-        bmp = wx.Bitmap( os.path.join(config.icons_path, "icon.xpm"), wx.BITMAP_TYPE_XPM )
+        bmp = wx.Bitmap( os.path.join(config.icons_path, "icon.png") )
         icon.CopyFromBitmap(bmp)
         self.SetIcon(icon)
     def init_layout_settings(self):
@@ -1311,6 +1387,27 @@ class wxGladeFrame(wx.Frame):
 
     def _check_geometry(self, x,y,width,height):
         # check whether a significant part would be visible
+        # also, at least a part of the top edge needs to be visible
+        if width<150 or height<150: return False
+
+        # check top line
+        top_line = wx.Rect(x,y,width,1)
+        min_visible = int(round(width/3))
+        top_line_OK = False
+        for d in range(wx.Display.GetCount()):
+            display = wx.Display(d)
+            client_area = display.ClientArea
+            if not client_area.width or not client_area.height:
+                # the display info is broken on some installations
+                continue
+            intersection = client_area.Intersect(top_line)
+            if intersection.width>=min_visible:
+                top_line_OK = True
+                break
+
+        if not top_line_OK: return False
+
+        # check rectangle
         geometry = wx.Rect(x,y,width,height)
 
         for d in range(wx.Display.GetCount()):
@@ -1348,13 +1445,20 @@ class wxGlade(wx.App):
         common.init_preferences()
 
         self.locale = wx.Locale(wx.LANGUAGE_DEFAULT)  # avoid PyAssertionErrors
-        compat.wx_ArtProviderPush(wxGladeArtProvider())
+        #compat.wx_ArtProviderPush(wxGladeArtProvider())
 
         frame = wxGladeFrame()
         self.SetTopWindow(frame)
         self.SetExitOnFrameDelete(True)
 
-        self.Bind(wx.EVT_IDLE, self.OnIdle)
+        self.init_idle()
+
+        if config.inform_screen_reader:
+            message = ("It seems you have a screen reader software installed.\n"
+                       "Please be aware that there are some options to improve wxGlade accessibility\n"
+                       "with screen readers.\n"
+                       "See menu Edit -> Preferences -> Accessibility.")
+            wx.CallLater(1000, wx.MessageBox, message, "Accessibility Info")
 
         return True
 
@@ -1364,10 +1468,20 @@ class wxGlade(wx.App):
         logging.exception = self._exception_orig
         return 0
 
-    def OnIdle(self, event):
+    def init_idle(self):
+        if wx.Platform == "__WXMAC__" and compat.IS_CLASSIC:
+            # it seems that EVT_IDLE makes wx.CallAfter stall from time to time, so we use a timer
+            wx.CallLater(200, self.OnIdle)
+        else:
+            self.Bind(wx.EVT_IDLE, self.OnIdle)
+
+    def OnIdle(self, event=None):
         "Idle tasks - currently show error messages only;  see: show_msgdialog()"
-        self.show_msgdialog()
-        event.Skip()
+        try:
+            self.show_msgdialog()
+        finally:
+            if wx.Platform == "__WXMAC__" and compat.IS_CLASSIC:
+                wx.CallLater(200, self.OnIdle)
 
     def show_msgdialog(self):
         """
@@ -1439,6 +1553,14 @@ def main(filename=None):
             win.import_xrc(filename)
         else:
             win._open_app(filename, False)
+
+            # mainly for debugging we want the first window to be opened already
+            if filename and config.open_design_window and common.root.children:
+                editor = common.root.children[0]
+                misc.set_focused_widget(editor)
+                editor.create()
+                common.app_tree.ExpandAllChildren(editor.item)
+
         win.cur_dir = os.path.dirname(filename)
     #win = app.GetTopWindow()
     ##win.import_xrc(r"D:\Python\Sources35\wxglade\wxglade_dev\tests\casefiles\CalendarCtrl.xrc")

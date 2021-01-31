@@ -86,6 +86,14 @@ class TestGui(WXGladeGUITest):
         self.load_and_generate('FontTest28', test_GUI=True)
         self.load_and_generate('FontTest', test_GUI=False)
 
+    def test_Frame_Size(self):
+        "Generate Fit() code for the second frame"
+        self.load_and_generate('Frame_Size', test_GUI=False)
+
+    def test_sizes(self):
+        # revision 1.1: test frame 'min_size' and managed 'max_size'
+        self.load_and_generate('Sizes_FrameMin_ManagedMax', test_GUI=True)
+
     def test_Grid(self):
         "Test code generation with a grid widgets and handling events"
         self.load_and_generate('Grid', test_GUI=False)
@@ -140,15 +148,24 @@ class TestGui(WXGladeGUITest):
         self.load_and_generate('BasesEtc_w_sizers', test_GUI=True)  # test files generated with v0.9.5 and re-ordered
         self.load_and_generate('BasesEtc', test_GUI=True)           # test files generated with 0.9.9pre
 
+    def test_grid_custom_base(self):
+        # test custom base for grid and also "Mark code block" deactivated
+        self.load_and_generate('test_grid_custom_base', test_GUI=True)
+
     def test_keep_code_migration(self):
         # test migration from 0.9 to 1.0: __do_layout and __set_properties should be removed
+        # C++: "virtual" will not be added here:  "public: void on_button_plot(wxCommandEvent &event);"
         # copy old files
-        for ext in ("py","cpp","pl","lisp"):
+        for ext in ("py","cpp","pl","lisp", "h"):
             old_filename = self._get_casefile_path('matplotlib_example_old.%s'%ext)
             generate_filename = self._get_outputfile_path('matplotlib_example.%s'%ext)
             self._copy_and_modify(old_filename, generate_filename)
         # the standard test will do the rest
         self.load_and_generate('matplotlib_example', test_GUI=True)
+
+    def test_class_migration(self):
+        # test migration from 0.9 to 1.0
+        self.load_and_generate('test_no_custom_class09', test_GUI=True)
 
     def test_Python_Ogg1(self):
         "Test Python code generation with overwriting a single existing file, preserving manually added code"
@@ -219,6 +236,8 @@ class TestGui(WXGladeGUITest):
             self._process_wx_events()
             common.app_tree.root.generate_code()
             self._compare_files(expected_filename, generate_filename, check_mtime=True)
+            if language=="C++":
+                self._compare_files(expected_filename_h, generate_filename_h, check_mtime=True)
 
     def test_all_Ogg2(self):
         "Test Python code generation with overwriting a single existing file, preserving manually added code"
@@ -243,6 +262,8 @@ class TestGui(WXGladeGUITest):
             self._process_wx_events()
             common.app_tree.root.generate_code()
             self._compare_files(expected_filename, generate_filename, check_mtime=True)
+            if language=="C++":
+                self._compare_files(expected_filename_h, generate_filename_h, check_mtime=True)
 
     def test_all_Ogg2(self):
         "Test code generation with overwriting multiples existing files, preserving manually added code"
@@ -286,6 +307,10 @@ class TestGui(WXGladeGUITest):
             self._compare_files(expected_app,    generate_app,    check_mtime=check_mtime)
             self._compare_files(expected_dialog, generate_dialog, check_mtime=check_mtime)
             self._compare_files(expected_frame,  generate_frame,  check_mtime=check_mtime)
+
+            if language=="C++":
+                self._compare_files(expected_filename_dialog_h, generate_filename_dialog_h, check_mtime=True)
+                self._compare_files(expected_filename_frame_h, generate_filename_frame_h, check_mtime=True)
 
     def test_all_Tool_Menu_EventBinding(self):
         self.load_and_generate('Tool_Menu_EventBinding', excluded=["lisp"], test_GUI=False)
@@ -359,6 +384,14 @@ class TestGui(WXGladeGUITest):
     def test_Menu(self):
         self.load_and_generate('MenuTest', excluded=["lisp"], test_GUI=True)
 
+    def test_Menu_lambda_handlers_keep_code(self):
+        # copy .py file to test "Keep user code"
+        old_filename = self._get_casefile_path('MenuHandlers_Lambda.py')
+        generate_filename = self._get_outputfile_path("MenuHandlers_Lambda.py")
+        self._copy_and_modify(old_filename, generate_filename)
+        # the standard test will do the rest
+        self.load_and_generate('MenuHandlers_Lambda', included=["python"], test_GUI=True)
+
     def _assert_styles(self, got, expected, msg=None):
         if isinstance(got,      str): got      = got.split("|")
         if isinstance(expected, str): expected = expected.split("|")
@@ -375,29 +408,10 @@ class TestGui(WXGladeGUITest):
         common.app_tree.root.clear()
         common.app_tree.root.init()
         import widgets.frame.frame
-        widgets.frame.frame.builder(common.root, 0, "wxFrame", "MyFrame", "frame")
+        frame = widgets.frame.frame.builder(common.root, 0, "wxFrame", "MyFrame", "frame")
 
-        item = common.app_tree.root.children[0]
-        common.adding_widget = True
-        common.widget_to_add = "EditHyperlinkCtrl"
-        if item.children[0].children:  # sizer with slot
-            item.children[0].children[0].on_drop_widget(None)
-            hyperlink = item.children[0].children[0]
-        else:  # just a slot
-            item.children[0].on_drop_widget(None)
-            hyperlink = item.children[0]
-
-        ## expand tree and show edit window
-        #tree = common.app_tree.drop_target()
-        #root = tree.GetRootItem()
-        #first, cookie = tree.GetFirstChild(root)
-        #if first.IsOk():
-            #tree.expand()
-            #self._process_wx_events()
-            #tree.SelectItem(first)
-            #self._process_wx_events()
-            #node = tree.GetPyData(first)
-            #tree.show_toplevel(node)
+        import widgets.hyperlink_ctrl.hyperlink_ctrl
+        hyperlink = widgets.hyperlink_ctrl.hyperlink_ctrl.builder(frame, 0, "Hyperlink")
         self._process_wx_events()
         # check available style names
         sp = hyperlink.properties["style"]

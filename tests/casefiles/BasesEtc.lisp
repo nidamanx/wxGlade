@@ -10,9 +10,12 @@
 
 ;;; begin wxGlade: dependencies
 (use-package :NotebookPageWithBases)
-(use-package :SplitterWindowWithBasesInFrame)
-(use-package :TestNotebookWithBasesInFrame)
-(use-package :TestPanelWithBasesInFrame)
+(use-package :mymenubar.MyMenuBar)
+(use-package :mynotebook.MyNoteBook)
+(use-package :mypanel.MyPanel)
+(use-package :mysplitter.MySplitterWindow)
+(use-package :mystatusbar.MyStatusBar)
+(use-package :mytoolbar.MyToolBar)
 (use-package :wx.html.HtmlWindow)
 (use-package :wxButton)
 (use-package :wxCL)
@@ -36,6 +39,12 @@
 
 ;;; begin wxGlade: extracode
 import wx.html
+import mynotebook
+import mysplitter
+import mypanel
+import mytoolbar
+import mystatusbar
+import mymenubar
 ;;; end wxGlade
 
 
@@ -78,9 +87,8 @@ import wx.html
         
         ;;; Tool Bar
         (setf (slot-frame-toolbar obj) (wxToolBar_Create (slot-top-window obj) -1 -1 -1 -1 -1 wxTB_HORIZONTAL))
-        (wxToolBar_Realize (slot-frame-toolbar obj))
-        (wxToolBar_Realize (slot-frame-toolbar obj))
         (wxFrame_SetToolBar (slot-top-window obj) (slot-frame-toolbar obj))
+        (wxToolBar_Realize (slot-frame-toolbar obj))
         ;;; Tool Bar end
         
         (setf (slot-panel-x obj) (wxPanel_Create (slot-top-window obj) wxID_ANY -1 -1 -1 -1 wxTAB_TRAVERSAL))
@@ -352,9 +360,8 @@ import wx.html
         
         ;;; Tool Bar
         (setf (slot-frame-copy-toolbar obj) (wxToolBar_Create (slot-top-window obj) -1 -1 -1 -1 -1 wxTB_HORIZONTAL))
-        (wxToolBar_Realize (slot-frame-copy-toolbar obj))
-        (wxToolBar_Realize (slot-frame-copy-toolbar obj))
         (wxFrame_SetToolBar (slot-top-window obj) (slot-frame-copy-toolbar obj))
+        (wxToolBar_Realize (slot-frame-copy-toolbar obj))
         ;;; Tool Bar end
         
         (setf (slot-panel_1 obj) (wxPanel_Create (slot-top-window obj) wxID_ANY -1 -1 -1 -1))

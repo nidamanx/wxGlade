@@ -34,8 +34,7 @@ class FieldsHandler(BaseXmlBuilderTagHandler):
             char_data = self.get_char_data()
             self.fields.append([char_data, self.width])
         else:  # name == 'fields'
-            self.owner.properties["fields"].set(self.fields)
-            self.owner.properties_changed(["fields"])
+            self.owner.properties["fields"].load(self.fields)
             return True
 
 
@@ -55,15 +54,15 @@ class FieldsProperty(np.GridProperty):
 
 class EditStatusBar(EditBase, EditStylesMixin):
     _hidden_frame = None
-    update_widget_style = False  # updating does not seem to have an effect
+    recreate_on_style_change = True
 
     WX_CLASS = 'wxStatusBar'
     _PROPERTIES = ["Widget", "style", "fields"]
     PROPERTIES = EditBase.PROPERTIES + _PROPERTIES + EditBase.EXTRA_PROPERTIES
     CHILDREN = 0
 
-    def __init__(self, name, klass, parent):
-        EditBase.__init__( self, name, klass, parent, custom_class=False, pos="_statusbar" )
+    def __init__(self, name, parent):
+        EditBase.__init__( self, name, parent, index="_statusbar")
         EditStylesMixin.__init__(self)
 
         # for the statusbar fields
@@ -72,11 +71,15 @@ class EditStatusBar(EditBase, EditStylesMixin):
         self.window_id = None  # just a dummy for code generation
 
     def create_widget(self):
-        self.widget = wx.StatusBar(self.parent.widget, -1)
+        self.widget = wx.StatusBar(self.parent.widget, -1, style=self.style)
         self.widget.Bind(wx.EVT_LEFT_DOWN, self.on_set_focus)
         self._set_fields()
         if self.parent.widget:
             self.parent.widget.SetStatusBar(self.widget)
+
+    def remove(self):
+        EditBase.remove(self)
+        self.parent.properties['statusbar'].set(False)
 
     def _set_fields(self):
         if not self.widget: return
@@ -92,25 +95,12 @@ class EditStatusBar(EditBase, EditStylesMixin):
 
         self.widget.SetStatusWidths(widths)
 
-    def remove(self, *args, **kwds):
-        # entry point from GUI
-        if not kwds.get('do_nothing', False):
-            self.parent.properties['statusbar'].set(False)
-            if self.parent.widget:
-                self.parent.widget.SetStatusBar(None)
-            try:
-                self.parent._statusbar = None
-            except KeyError:
-                pass
-            if self.widget:
-                self.widget.Hide()
-            EditBase.remove(self)
-        else:
-            if EditStatusBar._hidden_frame is None:
-                EditStatusBar._hidden_frame = wx.Frame(None, -1, "")
-            if self.widget is not None:
-                self.widget.Reparent(EditStatusBar._hidden_frame)
-            self.widget = None
+    def destroy_widget(self, level):
+        # if parent is being deleted, we rely on this being destroyed
+        if level==0 and not self.IS_TOPLEVEL and self.parent.widget:
+            self.parent.widget.SetStatusBar(None)
+        if level==0:
+            EditBase.destroy_widget(self, level)
 
     def popup_menu(self, *args):
         pass  # to avoid strange segfault :)
@@ -120,11 +110,14 @@ class EditStatusBar(EditBase, EditStylesMixin):
             return FieldsHandler(self)
         return None
 
-    def properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         if not modified or "fields" in modified:
             self._set_fields()
-        EditStylesMixin.properties_changed(self, modified)
-        EditBase.properties_changed(self, modified)
+        EditStylesMixin._properties_changed(self, modified, actions)
+        EditBase._properties_changed(self, modified, actions)
+        if "recreate2" in actions:  # usually, this would be done in WindowBase, but StatusBar is derived from EditBase
+            self.destroy_widget(level=0)
+            self.create_widget()
 
     def check_compatibility(self, widget, typename=None):
         return (False,"No pasting possible here.")
@@ -137,12 +130,12 @@ _NUMBER = 0
 class Dialog(wx.Dialog):
     def __init__(self):
         global _NUMBER
-        wx.Dialog.__init__(self, None, -1, _('Select toolbar class'))
+        wx.Dialog.__init__(self, None, -1, _('Select statusbar class'))
         
         if common.root.language.lower() == 'xrc':
-            klass = 'wxToolBar'
+            klass = 'wxStatusBar'
         else:
-            klass = 'MyToolBar%s' % (_NUMBER or "")
+            klass = 'MyStatusBar%s' % (_NUMBER or "")
             _NUMBER += 1
 
         # class
@@ -160,46 +153,26 @@ class Dialog(wx.Dialog):
         szr.Fit(self)
 
 
-def builder(parent, pos):
-    "factory function for EditToolBar objects"
 
-    dialog = Dialog()
-    with misc.disable_stay_on_top(common.adding_window or parent):
-        res = dialog.ShowModal()
-    klass = dialog.klass
-    dialog.Destroy()
-    if res != wx.ID_OK:
-        global _NUMBER
-        if _NUMBER > 0: _NUMBER -= 1
-        return
-
-    name = parent.toplevel_parent.get_next_contained_name('statusbar_%d')
-    with parent.frozen():
-        editor = EditStatusBar(name, klass, parent)
-        if parent.widget: editor.create()
+def builder(parent, index, klass):
+    # only used from Frame.menubar property
+    editor = EditStatusBar(parent.name+"_statusbar", parent)
+    if parent.widget: editor.create()
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory to build EditStatusBar objects from a XML file"
-    name = attrs.get('name')
-    if parent:
-        if name:
-            p_name = parent._statusbar.properties["name"]
-            p_name.previous_value = p_name.value
-            p_name.set(name)
-            parent._statusbar.properties_changed(["name"])
-        return parent._statusbar
-    return EditStatusBar(name, attrs.get('class', 'wxStatusBar'), parent)
+    parent.properties["statusbar"].set(True)
+    return EditStatusBar(name, parent)
 
 
 def initialize():
     "initialization function for the module: returns a wxBitmapButton to be added to the main palette."
     common.widget_classes['EditStatusBar'] = EditStatusBar
+    common.widgets['EditStatusBar'] = builder   # only used from Frame.menubar property
     common.widgets_from_xml['EditStatusBar'] = xml_builder
-    common.widgets['EditStatusBar'] = builder
-    # no standalone status bar any more
     import config, os
     from tree import WidgetTree
-    WidgetTree.images['EditStatusBar'] = os.path.join(config.icons_path, 'statusbar.xpm')
+    WidgetTree.images['EditStatusBar'] = os.path.join(config.icons_path, 'statusbar.png')
     return []

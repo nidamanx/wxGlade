@@ -81,15 +81,13 @@ class PerlCodeGenerator(wcodegen.PerlWidgetCodeWriter):
         else:
             extra = ''
 
-        if obj.klass != obj.WX_CLASS:
-            klass = obj.klass
-        else:
-            klass = self.cn(obj.WX_CLASS)
+        klass = obj.get_instantiation_class(self.cn, self.cn_class)
 
         init = ['\n', '# Tool Bar\n',
                 '$self->{%s} = %s->new($self, -1%s);\n' % (obj.name, klass, extra)
-                ] + self.get_init_code(obj) + self.get_properties_code(obj) + self.get_layout_code(obj) + [
+                ] + self.get_init_code(obj) + self.get_properties_code(obj) + [
                 '$self->SetToolBar($self->{%s});\n' % obj.name,
+                '%s->Realize();\n' % self.format_widget_access(obj),
                 '# Tool Bar end\n' ]
         return init, []
 

@@ -8,6 +8,7 @@ Utilities, e.g. for debugging
 
 from __future__ import print_function
 
+import sys, os
 import wx
 
 
@@ -16,7 +17,8 @@ def hx(obj):
 
 
 class StructurePrinter:
-    # print the structure and sizes of a window with all it's children
+    # print the structure and sizes of a wx window with all it's children
+    # this is not the wxGlade data structure
     def __init__(self, window):
         self.window(window, 0)
 
@@ -82,43 +84,97 @@ class StructurePrinter:
 
 class TreePrinter:
     # print the structure of the TreeCtrl
-    def __init__(self, tree):
-        self.tree = tree
-        root = tree.GetRootItem()
+    def __init__(self, root):
+        print("=============================================================================")
         self.prn(root, 0)
+        print("=============================================================================")
 
-    def _get_children_items(self, widget):
-        item = widget.item
-        items = []
-        child_item, cookie = self.GetFirstChild(item)
-        while child_item.IsOk():
-            items.append(child_item)
-            child_item, cookie = self.GetNextChild(item, cookie)
-        return items
-
-    def XXX(self, items):
-        for child_item in items:
-            editor = self.tree._GetItemData(child_item)
-            if editor is not None and (not children or not editor in children):
-                self._SetItemData(child_item, None)
-                editor.item = None  # is probably None already
-                item_editors.append(None)
-            else:
-                item_editors.append(editor)
-
-
-    def prn(self, item, indent=0):
-        items = self.tree._get_children_items(item)
-        if not items: return
-        for child_item in items:
-            editor = self.tree._GetItemData(child_item)
-            if editor.item is None:
-                status = "XXX Missing"
-            elif editor.item != child_item:
-                status = "XXX Mismatch"
-            else:
-                status = ""
-            print( "  "*indent, hx(child_item), editor.WX_CLASS or editor.name, hx(editor), status )
-            self.prn(child_item, indent+1)
+    def prn(self, editor, indent=0):
+        all_children = editor.get_all_children()
+        if not all_children: return
+        for child in all_children:
+            klass = "class" in child.PROPERTIES and child.klass or None
+            print( "  "*indent, child.WX_CLASS, klass, getattr(child, "custom_class", "---"), child.IS_TOPLEVEL)
+            self.prn(child, indent+1)
 
         print()
+
+
+def trace1(func, *args, **kwargs):
+    # use built-in trace module to write an execution trace to stdout
+    # e.g. utilities.trace1(clipboard.paste, focused_widget)
+    import sys, trace
+
+    tracer = trace.Trace(ignoredirs=[sys.prefix, sys.exec_prefix],
+                         ignoremods=["gui_mixins", "new_properties", "decorators", "__init__", "clipboard"], 
+                         trace=1, count=0)
+
+    editor = common.root.children[-1]
+    tracer.runfunc(editor.create_widgets)
+
+    # make a report, placing output in the current directory
+    r = tracer.results()
+    if filename:
+        r.write_results_file(path, lines, lnotab, lines_hit, encoding=None)
+    else:
+        r.write_results(show_missing=True, coverdir=".")
+
+
+# own implementation for wxGlade
+TRACING = False
+def trace(filename, func, *args, **kwargs):
+    start_trace(filename)
+    func(*args, **kwargs)
+    stop_trace()
+
+def start_trace():
+    global TRACING
+    if TRACING: return
+    TRACING = True
+    sys.settrace(trace_calls)
+
+def stop_trace():
+    sys.settrace(None)
+    global TRACING
+    TRACING = False
+
+
+_FILES = {}
+def _get_line(filename, line_no):
+    if not filename in _FILES:
+        _FILES[filename] = open(filename, "r").readlines()
+    return _FILES[filename][line_no-1]
+
+
+def trace_lines(frame, event, arg):
+    if event != 'line': return
+    co = frame.f_code
+    func_name = co.co_name
+    line_no = frame.f_lineno
+    filename = co.co_filename
+    if os.path.isfile(filename):
+        print( '  %30s: %5d' % (func_name, line_no), _get_line(filename, line_no), end="" )
+    else:
+        print( '  %30s: %5d' % (func_name, line_no) )
+
+def trace_calls(frame, event, arg):
+    if event != 'call': return
+    co = frame.f_code
+    func_name = co.co_name
+    
+    if func_name in ("__getattr__", "<genexpr>", "<listcomp>"): return
+    
+    if func_name in ("cn",): return
+    #if func_name.startswith("_",): return
+    if func_name in ("wxname2attr",): return
+
+    filename = co.co_filename
+    if filename.startswith(sys.prefix) or filename.startswith(sys.exec_prefix): return
+
+    modulename = filename.split(os.sep)[-1].split(".")[0]
+    if modulename in ("new_properties", "gui_mixins", "decorators", "log", "main", "misc", "compat",): return
+
+    line_no = frame.f_lineno
+    print( ' -> %s:%s %s' % (modulename, line_no, func_name))
+
+    return trace_lines

@@ -96,8 +96,8 @@ sub new {
     $self->{All_Widgets_toolbar} = Wx::ToolBar->new($self, -1);
     $self->{All_Widgets_toolbar}->AddTool(wxID_UP, _T("UpDown"), Wx::ArtProvider::GetBitmap(wxART_GO_UP, wxART_OTHER, Wx::Size->new(32, 32)), Wx::ArtProvider::GetBitmap(wxART_GO_DOWN, wxART_OTHER, Wx::Size->new(32, 32)), wxITEM_CHECK, _T("Up or Down"), _T("Up or Down"));
     $self->{All_Widgets_toolbar}->AddTool(wxID_OPEN, _T("Open"), Wx::Bitmap->new(32, 32), wxNullBitmap, wxITEM_NORMAL, _T("Open a new file"), _T("Open a new file"));
-    $self->{All_Widgets_toolbar}->Realize();
     $self->SetToolBar($self->{All_Widgets_toolbar});
+    $self->{All_Widgets_toolbar}->Realize();
     # Tool Bar end
     
     $self->{sizer_1} = Wx::FlexGridSizer->new(3, 1, 0, 0);
@@ -110,7 +110,7 @@ sub new {
     
     $self->{sizer_13} = Wx::FlexGridSizer->new(2, 2, 0, 0);
     
-    $self->{bitmap_button_icon1} = Wx::BitmapButton->new($self->{notebook_1_wxBitmapButton}, wxID_ANY, Wx::Bitmap->new("icon.xpm", wxBITMAP_TYPE_ANY));
+    $self->{bitmap_button_icon1} = Wx::BitmapButton->new($self->{notebook_1_wxBitmapButton}, wxID_ANY, Wx::Bitmap->new("icon.png", wxBITMAP_TYPE_ANY));
     $self->{bitmap_button_icon1}->SetSize($self->{bitmap_button_icon1}->GetBestSize());
     $self->{bitmap_button_icon1}->SetDefault();
     $self->{sizer_13}->Add($self->{bitmap_button_icon1}, 1, wxALL|wxEXPAND, 5);
@@ -120,7 +120,7 @@ sub new {
     $self->{bitmap_button_empty1}->SetDefault();
     $self->{sizer_13}->Add($self->{bitmap_button_empty1}, 1, wxALL|wxEXPAND, 5);
     
-    $self->{bitmap_button_icon2} = Wx::BitmapButton->new($self->{notebook_1_wxBitmapButton}, wxID_ANY, Wx::Bitmap->new("icon.xpm", wxBITMAP_TYPE_ANY), wxDefaultPosition, wxDefaultSize, wxBORDER_NONE|wxBU_BOTTOM);
+    $self->{bitmap_button_icon2} = Wx::BitmapButton->new($self->{notebook_1_wxBitmapButton}, wxID_ANY, Wx::Bitmap->new("icon.png", wxBITMAP_TYPE_ANY), wxDefaultPosition, wxDefaultSize, wxBORDER_NONE|wxBU_BOTTOM);
     $self->{bitmap_button_icon2}->SetBitmapDisabled(Wx::Bitmap->new(32, 32));
     $self->{bitmap_button_icon2}->SetSize($self->{bitmap_button_icon2}->GetBestSize());
     $self->{bitmap_button_icon2}->SetDefault();
@@ -224,7 +224,7 @@ sub new {
     $self->{sizer_17} = Wx::BoxSizer->new(wxHORIZONTAL);
     
     $self->{datepicker_ctrl_1} = Wx::DatePickerCtrl->new($self->{notebook_1_wxDatePickerCtrl}, wxID_ANY, Wx::DateTime->new(), wxDefaultPosition, wxDefaultSize, wxDP_SHOWCENTURY);
-    $self->{sizer_17}->Add($self->{datepicker_ctrl_1}, 1, wxALIGN_CENTER|wxALL, 5);
+    $self->{sizer_17}->Add($self->{datepicker_ctrl_1}, 1, wxALIGN_CENTER_VERTICAL|wxALL, 5);
     
     $self->{notebook_1_wxGauge} = Wx::Panel->new($self->{notebook_1}, wxID_ANY);
     $self->{notebook_1}->AddPage($self->{notebook_1_wxGauge}, _T("wxGauge"));
@@ -360,6 +360,7 @@ sub new {
     $self->{sizer_29} = Wx::BoxSizer->new(wxHORIZONTAL);
     
     $self->{splitter_1} = Wx::SplitterWindow->new($self->{notebook_1_wxSplitterWindow_horizontal}, wxID_ANY, wxDefaultPosition, wxDefaultSize, 0);
+    $self->{splitter_1}->SetBackgroundColour(Wx::Colour->new(255, 0, 0));
     $self->{splitter_1}->SetMinimumPaneSize(20);
     $self->{sizer_29}->Add($self->{splitter_1}, 1, wxALL|wxEXPAND, 5);
     
@@ -407,23 +408,23 @@ sub new {
     $self->{sizer_11} = Wx::BoxSizer->new(wxVERTICAL);
     
     $self->{bitmap_empty} = Wx::StaticBitmap->new($self->{notebook_1_wxStaticBitmap}, wxID_ANY, Wx::Bitmap->new(32, 32));
-    $self->{sizer_11}->Add($self->{bitmap_empty}, 1, wxALIGN_CENTER|wxALL|wxEXPAND, 5);
+    $self->{sizer_11}->Add($self->{bitmap_empty}, 1, wxALL|wxEXPAND, 5);
     
-    $self->{bitmap_file} = Wx::StaticBitmap->new($self->{notebook_1_wxStaticBitmap}, wxID_ANY, Wx::Bitmap->new("icon.xpm", wxBITMAP_TYPE_ANY));
-    $self->{sizer_11}->Add($self->{bitmap_file}, 1, wxALIGN_CENTER|wxALL|wxEXPAND, 5);
+    $self->{bitmap_file} = Wx::StaticBitmap->new($self->{notebook_1_wxStaticBitmap}, wxID_ANY, Wx::Bitmap->new("icon.png", wxBITMAP_TYPE_ANY));
+    $self->{sizer_11}->Add($self->{bitmap_file}, 1, wxALL|wxEXPAND, 5);
     
     $self->{bitmap_nofile} = Wx::StaticBitmap->new($self->{notebook_1_wxStaticBitmap}, wxID_ANY, Wx::Bitmap->new("non-existing.bmp", wxBITMAP_TYPE_ANY));
-    $self->{sizer_11}->Add($self->{bitmap_nofile}, 1, wxALIGN_CENTER|wxALL|wxEXPAND, 5);
+    $self->{sizer_11}->Add($self->{bitmap_nofile}, 1, wxALL|wxEXPAND, 5);
     
     $self->{bitmap_art} = Wx::StaticBitmap->new($self->{notebook_1_wxStaticBitmap}, wxID_ANY, Wx::ArtProvider::GetBitmap(wxART_PRINT, wxART_OTHER, Wx::Size->new(32, 32)));
-    $self->{sizer_11}->Add($self->{bitmap_art}, 1, wxALIGN_CENTER|wxALL|wxEXPAND, 5);
+    $self->{sizer_11}->Add($self->{bitmap_art}, 1, wxALL|wxEXPAND, 5);
     
     $self->{bitmap_null} = Wx::StaticBitmap->new($self->{notebook_1_wxStaticBitmap}, wxID_ANY, wxNullBitmap);
-    $self->{sizer_11}->Add($self->{bitmap_null}, 1, wxALIGN_CENTER|wxALL|wxEXPAND, 5);
+    $self->{sizer_11}->Add($self->{bitmap_null}, 1, wxALL|wxEXPAND, 5);
     
     $self->{bitmap_null_sized} = Wx::StaticBitmap->new($self->{notebook_1_wxStaticBitmap}, wxID_ANY, wxNullBitmap);
     $self->{bitmap_null_sized}->SetMinSize(Wx::Size->new(50, 50));
-    $self->{sizer_11}->Add($self->{bitmap_null_sized}, 1, wxALIGN_CENTER|wxALL|wxEXPAND, 5);
+    $self->{sizer_11}->Add($self->{bitmap_null_sized}, 1, wxALL|wxEXPAND, 5);
     
     $self->{notebook_1_wxStaticLine} = Wx::Panel->new($self->{notebook_1}, wxID_ANY);
     $self->{notebook_1}->AddPage($self->{notebook_1_wxStaticLine}, _T("wxStaticLine"));
@@ -450,16 +451,16 @@ sub new {
     
     $self->{grid_sizer_3} = Wx::FlexGridSizer->new(1, 3, 0, 0);
     
-    $self->{label_1} = Wx::StaticText->new($self->{notebook_1_wxStaticText}, wxID_ANY, _T("red text (RGB)"), wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER);
+    $self->{label_1} = Wx::StaticText->new($self->{notebook_1_wxStaticText}, wxID_ANY, _T("red text (RGB)"), wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
     $self->{label_1}->SetForegroundColour(Wx::Colour->new(255, 0, 0));
     $self->{grid_sizer_3}->Add($self->{label_1}, 1, wxALL|wxEXPAND, 5);
     
-    $self->{label_4} = Wx::StaticText->new($self->{notebook_1_wxStaticText}, wxID_ANY, _T("black on red (RGB)"), wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER);
+    $self->{label_4} = Wx::StaticText->new($self->{notebook_1_wxStaticText}, wxID_ANY, _T("black on red (RGB)"), wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
     $self->{label_4}->SetBackgroundColour(Wx::Colour->new(255, 0, 0));
     $self->{label_4}->SetToolTip(_T("Background colour won't show, check documentation for more details"));
     $self->{grid_sizer_3}->Add($self->{label_4}, 1, wxALL|wxEXPAND, 5);
     
-    $self->{label_5} = Wx::StaticText->new($self->{notebook_1_wxStaticText}, wxID_ANY, _T("green on pink (RGB)"), wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER);
+    $self->{label_5} = Wx::StaticText->new($self->{notebook_1_wxStaticText}, wxID_ANY, _T("green on pink (RGB)"), wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
     $self->{label_5}->SetBackgroundColour(Wx::Colour->new(255, 0, 255));
     $self->{label_5}->SetForegroundColour(Wx::Colour->new(0, 255, 0));
     $self->{label_5}->SetToolTip(_T("Background colour won't show, check documentation for more details"));

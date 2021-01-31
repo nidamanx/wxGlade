@@ -48,15 +48,14 @@
         ;;; Tool Bar
         (setf (slot-frame-1-toolbar obj) (wxToolBar_Create (slot-top-window obj) -1 -1 -1 -1 -1 wxTB_HORIZONTAL))
         (wxToolBar_AddTool (slot-frame-1-toolbar obj) wxID_UP "UpDown" wxArtProvider_GetBitmap(wxART_GO_UP wxART_OTHER wxSize_Create(32 32)) wxArtProvider_GetBitmap(wxART_GO_DOWN wxART_OTHER wxSize_Create(32 32)) wxITEM_CHECK "Up or Down" "Up or Down")
-        (wxToolBar_Realize (slot-frame-1-toolbar obj))
-        (wxToolBar_Realize (slot-frame-1-toolbar obj))
         (wxFrame_SetToolBar (slot-top-window obj) (slot-frame-1-toolbar obj))
+        (wxToolBar_Realize (slot-frame-1-toolbar obj))
         ;;; Tool Bar end
         
         (setf (slot-sizer-1 obj) (wxBoxSizer_Create wxVERTICAL))
         
-        (setf (slot-label-1 obj) (wxStaticText_Create (slot-top-window obj) wxID_ANY "placeholder - every design\nneeds a toplevel window" -1 -1 -1 -1 wxALIGN_CENTER))
-        (wxSizer_AddWindow (slot-sizer-1 obj) (slot-label-1 obj) 1 (logior wxALIGN_CENTER wxALL wxEXPAND) 0 nil)
+        (setf (slot-label-1 obj) (wxStaticText_Create (slot-top-window obj) wxID_ANY "placeholder - every design\nneeds a toplevel window" -1 -1 -1 -1 wxALIGN_CENTER_HORIZONTAL))
+        (wxSizer_AddWindow (slot-sizer-1 obj) (slot-label-1 obj) 1 (logior wxALL wxEXPAND) 0 nil)
         
         (wxWindow_SetSizer (slot-top-window obj) (slot-sizer-1 obj))
         

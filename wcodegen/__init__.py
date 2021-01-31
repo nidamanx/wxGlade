@@ -12,16 +12,13 @@ import common, config, misc, compat
 import new_properties as np
 
 import copy, logging, os.path
-from .dialogs import *
 from gui_mixins import StylesMixin
 
 
 class BaseCodeWriter(object):
     "Base for all code writer classes"
     def __init__(self):
-        "Initialise only instance variables using there defaults."
-        # initialise instance logger
-        self._logger = logging.getLogger(self.__class__.__name__)
+        pass
 
     # the following methods will be implemented in derived classes to return the actual code
     def get_code(self, obj):
@@ -46,18 +43,6 @@ class BaseCodeWriter(object):
         """Returns code that will be inserted after the child code; e.g. for adding element to a sizer.
         It's placed before the final code returned from get_code()."""
         return []
-
-    def __getstate__(self):
-        state = self.__dict__.copy()
-        del state['_logger']
-        return state
-
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-
-        # re-initialise logger instance deleted from __getstate__
-        self._logger = logging.getLogger(self.__class__.__name__)
-
 
 
 class BaseLanguageMixin(StylesMixin):
@@ -399,7 +384,7 @@ class BaseWidgetWriter(StylesMixin, BaseCodeWriter):
         else:
             if self.set_default_style:
                 if style and not fmt_style:
-                    self._logger.debug( _('Unsupported attribute %s use default %s instead'), style, self.default_style)
+                    logging.debug( _('Unsupported attribute %s use default %s instead'), style, self.default_style)
                 style = self.tmpl_flags % fmt_default_style
             else:
                 style = ''
@@ -415,14 +400,7 @@ class BaseWidgetWriter(StylesMixin, BaseCodeWriter):
         self.tmpl_dict['id_name'], self.tmpl_dict['id_number'] = self.codegen.generate_code_id(obj)
         self.tmpl_dict['id'] = self.tmpl_dict['id_number']
         self.tmpl_dict['obj_name'] = self.codegen._format_name(obj.name)
-
-        klass = obj.klass
-        if klass == obj.WX_CLASS:
-            klass = self.cn(klass)
-        else:
-            klass = self.cn_class(klass)
-        self.tmpl_dict['klass'] = klass
-
+        self.tmpl_dict['klass'] = obj.get_instantiation_class(self.cn, self.cn_class, self.codegen.preview)
         self.tmpl_dict['store_as_attr'] = self.codegen.store_as_attr(obj)
 
         if obj.check_prop('style'): self.tmpl_dict['style'] = self._prepare_style(obj.properties["style"])
@@ -452,19 +430,23 @@ class BaseWidgetWriter(StylesMixin, BaseCodeWriter):
             if not isinstance(p, np.BitmapProperty): continue
             value = p.get_value()
             if value.startswith('art:'): need_artprovider = True
+            self.tmpl_dict[p_name] = self.generate_code_bitmap(value)
             if '%%(%s)s'%p_name in self.tmpl:
                 # constructor argument
-                self.tmpl_dict[p_name] = self.generate_code_bitmap(value)
                 have_constructor_argument = True
             elif value and (not p.min_version or self.codegen.for_version>=p.min_version):
                 # property to be set after construction, e.g.: ...SetBitmapDisabled(disabled_bitmap)
-                self.tmpl_dict[p_name] = self.generate_code_bitmap(value)
                 setname = p_name.replace( "_bitmap", "").capitalize()
                 if compat.IS_CLASSIC and setname=="Pressed":
                     setname = "Selected"  # probably only wx 2.8
                 if setname=="Bitmap": setname = ""
                 # build template, e.g. '%(name)s.SetBitmapDisabled(%(disabled_bitmap)s)\n'
+
                 tmpl = self.tmpl2_bitmap_property%(setname, p_name)
+                if p_name=="bitmap" and obj.check_prop_nodefault("bitmap_dir"):
+                    direction = self.cn( obj.properties["bitmap_dir"].get_string_value() )
+                    tmpl = self.tmpl2_bitmap_property_with_dir%(setname, p_name, direction)
+
                 self.tmpl_props.append(tmpl)
 
         # import artprovider?
@@ -513,10 +495,10 @@ class BaseWidgetWriter(StylesMixin, BaseCodeWriter):
         preview = self.codegen.preview
 
         if ( preview and ( bitmap.startswith('var:') or bitmap.startswith('code:') ) ) or (not bitmap and required):
-            preview_icon = os.path.join(config.icons_path, "icon.xpm")
+            preview_icon = os.path.join(config.icons_path, "icon.png")
             return self.tmpl_inline_bitmap % { 'name': self.codegen.cn('wxBitmap'),
                                                'bitmap': self.codegen.quote_path(preview_icon),
-                                               'bitmap_type': self.codegen.cn('wxBITMAP_TYPE_XPM') }
+                                               'bitmap_type': self.codegen.cn('wxBITMAP_TYPE_ANY') }
 
         if bitmap.startswith('var:'):
             return self.tmpl_inline_bitmap % { 'name': self.codegen.cn('wxBitmap'),
@@ -613,7 +595,7 @@ class BaseWidgetWriter(StylesMixin, BaseCodeWriter):
         if not events: return ret
 
         if 'events' not in self.config:
-            self._logger.warn( _('Object %(name)s(%(klass)s contains unknown events: %(events)s)'),
+            logging.warn( _('Object %(name)s(%(klass)s contains unknown events: %(events)s)'),
                                {'name':obj.name,'klass': obj.klass, 'events':events})
             return ret
 
@@ -710,7 +692,7 @@ class BaseWidgetWriter(StylesMixin, BaseCodeWriter):
                 raise ValueError
 
         except ValueError:
-            self._logger.warn('Malformed statement to create a bitmap via wxArtProvider(): %s', bitmap)
+            logging.warn('Malformed statement to create a bitmap via wxArtProvider(): %s', bitmap)
 
         stmt = self.tmpl_inline_artprovider % {'art_id': self.codegen.cn(art_id),
                                                'art_client': self.codegen.cn(art_client),
@@ -735,7 +717,7 @@ class BaseWidgetWriter(StylesMixin, BaseCodeWriter):
             size = bitmap[6:]
             width, height = [int(item.strip()) for item in size.split(',', 1)]
         except ValueError:
-            self._logger.warn( 'Malformed statement to create an empty bitmap: %s', bitmap )
+            logging.warn( 'Malformed statement to create an empty bitmap: %s', bitmap )
         stmt = self.tmpl_inline_emptybitmap % { 'width': width, 'height': height }
         return stmt
 
@@ -788,6 +770,7 @@ class CppWidgetCodeWriter(CppMixin, BaseWidgetWriter):
     tmpl_inline_bitmap      = '%(name)s(%(bitmap)s, %(bitmap_type)s)'
     tmpl_inline_emptybitmap = 'wxBitmap(%(width)s, %(height)s)'
     tmpl2_bitmap_property   = '%%(name)s->SetBitmap%s(%%(%s)s);\n'
+    tmpl2_bitmap_property_with_dir = '%%(name)s->SetBitmap%s(%%(%s)s, %s);\n'
 
     tmpl_selection   = '%(name)s->SetSelection(%(selection)s);\n'
     tmpl_setvalue    = '%(name)s->SetValue(%(value_unquoted)s);\n'
@@ -831,7 +814,8 @@ class CppWidgetCodeWriter(CppMixin, BaseWidgetWriter):
         if self.tmpl_dict['store_as_attr']:
             self.tmpl_dict['name'] = self.codegen._format_classattr(obj)
         else:
-            self.tmpl_dict['name'] = '%s* %s' % (obj.klass, obj.name)
+            klass = obj.get_prop_value("class", obj.WX_CLASS)
+            self.tmpl_dict['name'] = '%s* %s' % (klass, obj.name)
 
         if 'id_name' in self.tmpl_dict:
             # An enum with the IDs has been generated in codegen.cpp_codegen.CPPCodeWriter.add_class() already
@@ -868,6 +852,7 @@ class LispWidgetCodeWriter(LispMixin, BaseWidgetWriter):
     tmpl_inline_bitmap      = '(%(name)s_CreateLoad %(bitmap)s %(bitmap_type)s)'
     tmpl_inline_emptybitmap = 'wxBitmap_Create(%(width)s %(height)s)'
     tmpl2_bitmap_property   = '(wxBitmapButton_SetBitmap%s (slot-%%(name)s obj) %%(%s)s)\n'
+    tmpl2_bitmap_property_with_dir = '(wxBitmapButton_SetBitmap%s (slot-%%(name)s obj) %%(%s)s %s)\n'
 
     tmpl_concatenate_choices = ' '
     tmpl_selection   = '(%(klass)s_SetSelection %(name)s %(selection)s)\n'
@@ -912,6 +897,7 @@ class PerlWidgetCodeWriter(PerlMixin, BaseWidgetWriter):
     tmpl_inline_bitmap      = '%(name)s->new(%(bitmap)s, %(bitmap_type)s)'
     tmpl_inline_emptybitmap = 'Wx::Bitmap->new(%(width)s, %(height)s)'
     tmpl2_bitmap_property   = '%%(name)s->SetBitmap%s(%%(%s)s);\n'
+    tmpl2_bitmap_property_with_dir = '%%(name)s->SetBitmap%s(%%(%s)s, %s);\n'
 
     tmpl_selection   = '%(name)s->SetSelection(%(selection)s);\n'
     tmpl_setvalue    = '%(name)s->SetValue(%(value_unquoted)s);\n'
@@ -953,6 +939,7 @@ class PythonWidgetCodeWriter(PythonMixin, BaseWidgetWriter):
     else:
         tmpl_inline_emptybitmap = 'wx.Bitmap(%(width)s, %(height)s)'
     tmpl2_bitmap_property = '%%(name)s.SetBitmap%s(%%(%s)s)\n'
+    tmpl2_bitmap_property_with_dir = '%%(name)s.SetBitmap%s(%%(%s)s, dir=%s)\n'
 
     tmpl_flags       = ', style=%s'
     tmpl_selection   = '%(name)s.SetSelection(%(selection)s)\n'

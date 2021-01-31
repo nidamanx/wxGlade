@@ -8,7 +8,7 @@ Custom wxWindow objects
 """
 
 import wx
-import common, misc
+import common, misc, compat, config
 from wcodegen.taghandler import BaseXmlBuilderTagHandler
 import new_properties as np
 from edit_windows import ManagedBase
@@ -39,8 +39,7 @@ class ArgumentsHandler(BaseXmlBuilderTagHandler):
 
     def end_elem(self, name):
         if name == 'arguments':
-            self.parent.properties['arguments'].set(self.arguments)
-            self.parent.properties_changed(["arguments"])
+            self.parent.properties['arguments'].load(self.arguments)
             return True
         elif name == 'argument':
             char_data = self.get_char_data()
@@ -56,27 +55,89 @@ class CustomWidget(ManagedBase):
     custom_ctor: if not empty, an arbitrary piece of code that will be used instead of the constructor name"""
 
     WX_CLASS = "CustomWidget"
-    _PROPERTIES = ["Widget", "custom_ctor", "arguments"]
+    _PROPERTIES = ["Widget", "custom_ctor", "show_design", "show_preview", "arguments"]
     PROPERTIES = ManagedBase.PROPERTIES + _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
 
-    _PROPERTY_LABELS = { 'custom_constructor':'Custom constructor' }
-    _PROPERTY_HELP   = { 'custom_constructor':'Specify a custom constructor like a factory method' }
+    _PROPERTY_LABELS = { 'custom_constructor':'Cust. constructor' }
+    _PROPERTY_HELP   = { 'custom_constructor':'Specify a custom constructor like a factory method',
+                         "instance_class":("The class that should be instantiated, e.g. 'mycontrols.MyCtrl'.\n\n"
+                            "You need to ensure that the class is available.\n"
+                            "Add required import code to 'Extra (import) code for this widget' on the Code tab."),
+                         'show_design':("Highly experimental:\nUse custom class and code already in Design window.\n\n"
+                                        "Only available if option 'Allow custom widget code in Design and Preview"
+                                        " windows' is checked."),
+                         'show_preview':("Highly experimental:\nUse custom class and code already in Preview window.\n\n"
+                                        "Only available if option 'Allow custom widget code in Design and Preview"
+                                        " windows' is checked.")}
 
-    def __init__(self, name, klass, parent, pos):
-        ManagedBase.__init__(self, name, klass, parent, pos)
+    def __init__(self, name, parent, index, instance_class=None):
+        ManagedBase.__init__(self, name, parent, index, instance_class or "wxWindow")
+        self.properties["instance_class"].deactivated = None
 
         # initialise instance properties
         cols      = [('Arguments', np.GridProperty.STRING)]
         self.arguments   = ArgumentsProperty( [], cols )
         self.custom_ctor = np.TextPropertyD("", name="custom_constructor", strip=True, default_value="")
 
-    def create_widget(self):
-        self.widget = wx.Window(self.parent_window.widget , self.id, style=wx.BORDER_SUNKEN | wx.FULL_REPAINT_ON_RESIZE)
-        self.widget.Bind(wx.EVT_PAINT, self.on_paint)
-        self.widget.Bind(wx.EVT_ERASE_BACKGROUND, lambda event:None)
+        self.show_design = np.CheckBoxProperty(False, default_value=False)
+        self.show_preview = np.CheckBoxProperty(False, default_value=False)
+        if not config.preferences.allow_custom_widgets:
+            self.properties["show_design"].set_blocked()
+            self.properties["show_preview"].set_blocked()
+        self._error_message = None  # when there's an error message due to the previous option
 
-    def finish_widget_creation(self):
-        ManagedBase.finish_widget_creation(self, sel_marker_parent=self.widget)
+    def create_widget(self):
+        self._error_message = None
+        if self.show_design and common.root.language=="python" and config.preferences.allow_custom_widgets:
+            # update path
+            import os, sys
+            dirname = os.path.dirname( common.root.filename )
+            if not dirname in sys.path: sys.path.insert(0, dirname)
+            # build code
+            code_gen = common.code_writers["python"]
+            code_gen.new_project(common.root)
+            builder = code_gen.obj_builders["CustomWidget"]
+            widget_access = "self.widget"
+            parent_access = "self.parent_window.widget"
+            lines = []
+            if self.check_prop_truth("extracode"):
+                lines.append( self.extracode )
+            if self.check_prop_truth("extracode_pre"):
+                lines.append( self.extracode_pre )
+            lines += builder.get_code(self, widget_access, parent_access)[0]
+            if self.check_prop_truth("extracode_post"):
+                lines.append( self.extracode_post )
+            if self.check_prop_truth("extraproperties"):
+                lines += code_gen.generate_code_extraproperties(self, widget_access)
+            code = "\n".join(lines)
+            if self.check_prop_truth("extracode_pre") or self.check_prop_truth("extracode_post"):
+                # replace widget and parent access in manually entered extra code
+                code = code.replace("self.%s"%self.name, widget_access)
+                code = code.replace(builder.format_widget_access(self.parent_window), parent_access)
+            # execute code
+            before = set(sys.modules.keys())
+            try:
+                exec(code)
+                after = set(sys.modules.keys())
+                for modulename in (after - before):
+                    if modulename in code: print(modulename)
+                return
+            except:
+                exc_type, exc_value, exc_traceback = sys.exc_info()
+                self._error_message = "%s: %s"%(exc_type, exc_value)
+                if self.widget: self.widget.Destroy()
+        # default / fallback in case of exception
+        self.widget = wx.Window(self.parent_window.widget, wx.ID_ANY, style=wx.BORDER_SUNKEN | wx.FULL_REPAINT_ON_RESIZE)
+        self.widget.Bind(wx.EVT_PAINT, self.on_paint)
+        self.widget.Bind(wx.EVT_ERASE_BACKGROUND, self.on_erase_background)
+        if self._error_message: compat.SetToolTip( self.widget, self._error_message )
+
+    def finish_widget_creation(self, level):
+        ManagedBase.finish_widget_creation(self, level, sel_marker_parent=self.widget)
+
+    def on_erase_background(self, event):
+        # ignore event for less flickering; 
+        pass
 
     def on_paint(self, event):
         dc = wx.PaintDC(self.widget)
@@ -87,11 +148,15 @@ class CustomWidget(ManagedBase):
         w, h = self.widget.GetClientSize()
         dc.DrawLine(0, 0, w, h)
         dc.DrawLine(w, 0, 0, h)
-        text = _('Custom Widget: %s') % self.klass
+        text = _('Custom Widget: %s') % self.instance_class
         tw, th = dc.GetTextExtent(text)
         x = (w - tw)//2
         y = (h - th)//2
-        dc.SetPen(wx.ThePenList.FindOrCreatePen(wx.BLACK, 0, wx.TRANSPARENT))
+        if self._error_message:
+            text = "%s\n%s"%(text, self._error_message)
+            dc.SetTextForeground(wx.RED)
+        dc.SetPen(wx.ThePenList.FindOrCreatePen(wx.BLACK, 0, wx.TRANSPARENT))  # transparent: border colour
+        #dc.SetPen(pen)
         dc.DrawRectangle(x-1, y-1, tw+2, th+2)
         dc.DrawText(text, x, y)
 
@@ -100,11 +165,12 @@ class CustomWidget(ManagedBase):
             return ArgumentsHandler(self)
         return ManagedBase.get_property_handler(self, name)
 
-    def properties_changed(self, modified):
-        if not modified or "klass" in modified:
-            if self.widget:
-                self.widget.Refresh()
-        ManagedBase.properties_changed(self, modified)
+    def _properties_changed(self, modified, actions):
+        if modified and "instance_class" in modified:
+            actions.update(("refresh","label"))
+        if modified and "show_design" in modified or self.show_design:
+            actions.add("recreate2")
+        ManagedBase._properties_changed(self, modified, actions)
 
 
 class Dialog(wx.Dialog):
@@ -118,7 +184,7 @@ class Dialog(wx.Dialog):
         self.classname = wx.TextCtrl(self, -1, klass)
         sizer = wx.BoxSizer(wx.VERTICAL)
         hsizer = wx.BoxSizer(wx.HORIZONTAL)
-        hsizer.Add(wx.StaticText(self, -1, _('class')), 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
+        hsizer.Add(wx.StaticText(self, -1, _('Instance class')), 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
         hsizer.Add(self.classname, 1, wx.ALIGN_CENTER_VERTICAL|wx.TOP|wx.BOTTOM|wx.RIGHT, 3)
         sizer.Add(hsizer, 0, wx.EXPAND)
 
@@ -145,7 +211,7 @@ class Dialog(wx.Dialog):
         self.OK_button.Enable( OK )
 
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for CustomWidget objects"
 
     dialog = Dialog()
@@ -157,7 +223,7 @@ def builder(parent, pos):
 
     name = parent.toplevel_parent.get_next_contained_name('window_%d')
     with parent.frozen():
-        editor = CustomWidget(name, klass, parent, pos)
+        editor = CustomWidget(name, parent, index, klass)
         editor.properties["arguments"].set( [['$parent'], ['$id']] )  # ,['$width'],['$height']]
         editor.properties["proportion"].set(1)
         editor.properties["flag"].set("wxEXPAND")
@@ -165,15 +231,9 @@ def builder(parent, pos):
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory to build CustomWidget objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        name = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    klass = attrs.get("class", "CustomWidget")
-    return CustomWidget(name, klass, parent, pos)
+    return CustomWidget(name, parent, index)
 
 
 def initialize():
@@ -182,5 +242,5 @@ def initialize():
     common.widgets['CustomWidget'] = builder
     common.widgets_from_xml['CustomWidget'] = xml_builder
 
-    return common.make_object_button('CustomWidget', 'custom.xpm', tip='Add a custom widget')
+    return common.make_object_button('CustomWidget', 'custom.png', tip='Add a custom widget')
 

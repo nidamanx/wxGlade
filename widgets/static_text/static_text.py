@@ -9,7 +9,7 @@ wxStaticText objects
 
 import wx
 #import wx.lib.stattext
-import common, config
+import common
 from edit_windows import ManagedBase, EditStylesMixin
 import new_properties as np
 
@@ -24,8 +24,8 @@ class EditStaticText(ManagedBase, EditStylesMixin):
                                  'Without this, you can not access the label from your program.',
                      "wrap":     'Wrap text to at most the given width.\nThe lines will be broken at word boundaries.'}
 
-    def __init__(self, name, parent, label, pos):
-        ManagedBase.__init__(self, name, 'wxStaticText', parent, pos)
+    def __init__(self, name, parent, index, label):
+        ManagedBase.__init__(self, name, parent, index)
         EditStylesMixin.__init__(self)
 
         # initialise instance properties
@@ -35,51 +35,56 @@ class EditStaticText(ManagedBase, EditStylesMixin):
 
     def create_widget(self):
         # up to 0.8 GenStaticText was used; it seems that nowadays StaticText handles mouse events on gtk as well
-        #self.widget = wx.lib.stattext.GenStaticText(self.parent_window.widget, self.id, self.label)
-        self.widget = wx.StaticText(self.parent_window.widget, self.id, self.label)
-        if self.wrap:
-            self.widget.Wrap(self.wrap)
+        #self.widget = wx.lib.stattext.GenStaticText(self.parent_window.widget, wx.ID_ANY, self.label)
+        self.widget = wx.StaticText(self.parent_window.widget, wx.ID_ANY, self.label, style=self.style)
+        # self.wrap is now handled in finish_widget_creation
 
-    def properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         if not modified or "label" in modified:
-            if common.app_tree: common.app_tree.refresh(self, refresh_label=True)
             if self.widget:
                 p = self.properties["label"]
                 if self.wrap!=-1 or (p.previous_value and len(p.previous_value)>len(self.label)):
                     # re-create as otherwise the size would not be reduced
-                    self.recreate_widget()
+                    actions.add("recreate2")
                     return
                 self.widget.SetLabel(self.label)
-                self._set_widget_best_size()
+                actions.add("layout")
 
         if (not modified or "wrap" in modified) and self.widget:
-            self.recreate_widget()  # calling .Wrap(self.wrap) would only work once and not set the size correctly
-
+            actions.add("recreate2")  # calling .Wrap(self.wrap) would only work once and not set the size correctly
             return
 
-        EditStylesMixin.properties_changed(self, modified)
-        ManagedBase.properties_changed(self, modified)
+        if modified and wx.Platform!="__WXMSW__":
+            if "style" in modified or "font" in modified or "foreground" in modified:
+                actions.add("recreate2")
+                return
+
+        EditStylesMixin._properties_changed(self, modified, actions)
+        ManagedBase._properties_changed(self, modified, actions)
 
 
-def builder(parent, pos):
+def builder(parent, index):
     "factory function for EditStaticText objects"
-    name = parent.toplevel_parent.get_next_contained_name('static_text_%d')
+    import dialogs, misc
+    name = parent.toplevel_parent.get_next_contained_name('label_%d')
+    dlg = dialogs.WidgetStyleSelectionDialog(_("Static Text / Label"), None, None, ["?Label"])
+    with misc.disable_stay_on_top(common.adding_window or parent):
+        res = dlg.ShowModal()
+    label, = dlg.get_options()
+    dlg.Destroy()
+    if res != wx.ID_OK: return
+
     with parent.frozen():
-        editor = EditStaticText(name, parent, name, pos)
+        editor = EditStaticText(name, parent, index, label)
         editor.properties["style"].set_to_default()
         editor.check_defaults()
         if parent.widget: editor.create()
     return editor
 
 
-def xml_builder(attrs, parent, pos=None):
+def xml_builder(parser, base, name, parent, index):
     "factory to build EditStaticText objects from a XML file"
-    from xml_parse import XmlParsingError
-    try:
-        label = attrs['name']
-    except KeyError:
-        raise XmlParsingError(_("'name' attribute missing"))
-    return EditStaticText(label, parent, "", pos)
+    return EditStaticText(name, parent, index, "")
 
 
 def initialize():
@@ -88,4 +93,4 @@ def initialize():
     common.widgets['EditStaticText'] = builder
     common.widgets_from_xml['EditStaticText'] = xml_builder
 
-    return common.make_object_button('EditStaticText', 'static_text.xpm')
+    return common.make_object_button('EditStaticText', 'static_text.png')

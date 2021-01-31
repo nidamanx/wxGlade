@@ -6,7 +6,7 @@ Different Mixins
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
-import copy, decorators
+import copy, decorators, logging
 import wx
 
 import config, compat, misc
@@ -244,7 +244,7 @@ class BitmapMixin(object):
                     p.set_check_result(warning="'Bitmap' property must be set first")
                     if modified and p.name in modified: warn = True  # show a dialog
                 if warn:
-                    self._logger.warning("'Bitmap' property must be set first")
+                    logging.warning("'Bitmap' property must be set first")
                 return
             # normal is set and has no error -> check sizes
             if not self.widget: return
@@ -255,8 +255,6 @@ class BitmapMixin(object):
                 current = method()
                 if not current.IsOk() or current.Size != ref_size or (modified and p.name in modified):
                     self._set_preview_bitmap(p, name, ref_size)
-        if set_size or not modified or "bitmap" in modified:
-            self._set_widget_best_size()
 
     def _set_preview_bitmap(self, prop, name, ref_size=None):
         if not config.use_gui:
@@ -287,7 +285,7 @@ class BitmapMixin(object):
             self._set_preview_bitmap(self.properties["bitmap"], "")
         self._check_bitmaps()
 
-    def _properties_changed(self, modified):
+    def _properties_changed(self, modified, actions):
         if "bitmap" in modified:
             # set normal bitmap here; the others will be set in _check_bitmaps
             self._set_preview_bitmap(self.properties["bitmap"], "")
@@ -342,7 +340,7 @@ class BitmapMixin(object):
                 raise ValueError
 
         except (ValueError, TypeError):
-            self._logger.warn( 'Malformed statement to create a bitmap via wxArtProvider(): %s', bitmap )
+            logging.warn( 'Malformed statement to create a bitmap via wxArtProvider(): %s', bitmap )
 
         # show wx art resources only
         if not art_id.startswith('wx'):     art_id     = 'wxART_HELP'
@@ -364,5 +362,5 @@ class BitmapMixin(object):
             size = bitmap[6:]
             width, height = [int(item.strip()) for item in size.split(',', 1)]
         except ValueError:
-            self._logger.warn( 'Malformed statement to create an empty bitmap: %s', bitmap )
+            logging.warn( 'Malformed statement to create an empty bitmap: %s', bitmap )
         return compat.wx_EmptyBitmap( max(1,width), max(1,height) )
