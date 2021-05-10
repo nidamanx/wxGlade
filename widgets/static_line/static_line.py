@@ -3,7 +3,7 @@ wxStaticLine objects
 
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2014-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -25,11 +25,9 @@ class EditStaticLine(ManagedBase, EditStylesMixin):
                                 'Without this, you can not access the line from your program.'}
     def __init__(self, name, parent, index, style):
         ManagedBase.__init__(self, name, parent, index)
-        EditStylesMixin.__init__(self)
+        EditStylesMixin.__init__(self, style)
 
-        # initialise instance properties
         self.attribute = np.CheckBoxProperty(False, default_value=False)
-        if style: self.properties["style"].set(style)
 
     def create_widget(self):
         self.widget = wx.StaticLine(self.parent_window.widget, wx.ID_ANY, style=self.style)

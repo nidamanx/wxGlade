@@ -3,7 +3,7 @@ wxPanel objects
 
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2014-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -24,14 +24,12 @@ class PanelBase(EditStylesMixin):
 
     def __init__(self, style='wxTAB_TRAVERSAL'):
         "Class to handle wxPanel objects"
-        EditStylesMixin.__init__(self, 'wxPanel')
+        EditStylesMixin.__init__(self, style, 'wxPanel')
 
         # initialise properties
         self.scrollable      = np.CheckBoxProperty(False, default_value=False)
         self.scroll_rate = prop = np.IntPairPropertyD( "10, 10" )
         prop.set_blocked(True)
-
-        if style: self.properties["style"].set(style)
 
     def get_editor_name(self):
         ret = self.__class__.__name__
@@ -86,6 +84,7 @@ class PanelBase(EditStylesMixin):
             self.on_set_focus(event)  # default behaviour: call show_properties
             return
         if self.widget: self.widget.SetCursor(wx.NullCursor)
+        common.history.widget_adding(self)
         new_widget = common.widgets[common.widget_to_add](self, None)
         if new_widget is None: return
         misc.rebuild_tree(new_widget)
@@ -93,6 +92,7 @@ class PanelBase(EditStylesMixin):
         if event is None or not misc.event_modifier_copy(event):
             common.adding_widget = common.adding_sizer = False
             common.widget_to_add = None
+        common.history.widget_added(new_widget)
 
     def check_drop_compatibility(self):
         if self.children:
@@ -237,8 +237,8 @@ class EditTopLevelPanel(PanelBase, TopLevelBase):
     WX_CLASS = "wxPanel"
     PROPERTIES = TopLevelBase.PROPERTIES + PanelBase._PROPERTIES + TopLevelBase.EXTRA_PROPERTIES
 
-    def __init__(self, name, parent, klass, style='wxTAB_TRAVERSAL'):
-        TopLevelBase.__init__(self, name, parent, klass)
+    def __init__(self, name, parent, index, klass, style='wxTAB_TRAVERSAL'):
+        TopLevelBase.__init__(self, name, parent, index, klass)
         PanelBase.__init__(self, style)
         self.skip_on_size = False
 
@@ -331,7 +331,7 @@ def xml_builder(parser, base, name, parent, index):
 
 
 def xml_toplevel_builder(parser, base, name, parent, index):
-    return EditTopLevelPanel( name, parent, "Panel", '' )
+    return EditTopLevelPanel( name, parent, index, "Panel", '' )
 
 
 def initialize():

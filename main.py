@@ -4,7 +4,7 @@ widgets and initializes all the stuff (tree, frame_property, etc.)
 
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2011-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -478,13 +478,18 @@ class wxGladeFrame(wx.Frame):
     def set_widget(self, widget):
         # update redo/repeat tools and menus
         if not common.history: return
-        if self._previous_redo_state == (common.history.can_redo, common.history.can_repeat): return
+        redo_state = (common.history.can_undo, common.history.can_redo, common.history.can_repeat)
+        if self._previous_redo_state == redo_state:
+            return
+        self._menu_undo.Enable(common.history.can_undo)
         self._menu_redo.Enable(common.history.can_redo)
         self._menu_repeat.Enable(common.history.can_repeat)
-        if not self._tool_redo: return
-        self._tool_redo.Enable(common.history.can_redo)
-        self._tool_repeat.Enable(common.history.can_repeat)
-        self.toolbar.Realize()
+        if self._tool_redo:
+            self._tool_undo.Enable(common.history.can_undo)
+            self._tool_redo.Enable(common.history.can_redo)
+            self._tool_repeat.Enable(common.history.can_repeat)
+            self.toolbar.Realize()
+        self._previous_redo_state = redo_state
 
     # menu and actions #################################################################################################
     def create_menu(self):
@@ -539,6 +544,10 @@ class wxGladeFrame(wx.Frame):
         edit_menu = wx.Menu(style=wx.MENU_TEAROFF)
 
         # these menu items will be updated
+        self._menu_undo = item = append_menu_item(edit_menu, -1, _('Un-do\tCtrl+Z'),
+                                                  helpString="Un-do the last property modification on another widget")
+        misc.bind_menu_item(self, item, lambda: common.history.undo(misc.focused_widget))
+
         self._menu_redo = item = append_menu_item(edit_menu, -1, _('Re-do\tCtrl+Y'),
                                                   helpString="Re-do the last property modification on another widget")
         misc.bind_menu_item(self, item, lambda: common.history.repeat(misc.focused_widget))
@@ -697,10 +706,14 @@ class wxGladeFrame(wx.Frame):
 
             tb.AddSeparator()
 
+        self._tool_undo = t = add( wx.ID_UNDO, "Un-do", wx.ART_UNDO, wx.ITEM_NORMAL, "Un-do (Ctrl+Z)" )
+        t.Enable(False)
+        self.Bind(wx.EVT_TOOL, lambda evt: common.history.undo(misc.focused_widget), t)
+
         self._tool_redo = t = add( wx.ID_REDO, "Re-do", wx.ART_REDO, wx.ITEM_NORMAL, "Re-do (Ctrl+Y)" )
         t.Enable(False)
         self.Bind(wx.EVT_TOOL, lambda evt: common.history.redo(misc.focused_widget), t)
-        
+
         self._tool_repeat = t = add( -1, "Repeat", wx.ART_REDO, wx.ITEM_NORMAL, "Repeat (Ctrl+R)" )
         t.Enable(False)
         self.Bind(wx.EVT_TOOL, lambda evt: common.history.repeat(misc.focused_widget), t)
@@ -1062,6 +1075,7 @@ class wxGladeFrame(wx.Frame):
                 common.root.clear()
                 common.root.new()
                 common.root.saved = True
+                if common.history: common.history.reset()
                 common.app_tree.auto_expand = True  # re-enable auto-expansion of nodes
 
                 wx.MessageBox(error_msg, _('Error'), wx.OK | wx.CENTRE | wx.ICON_ERROR)
@@ -1082,6 +1096,7 @@ class wxGladeFrame(wx.Frame):
         logging.info(_('Loading time: %.5f'), end - start)
 
         common.root.saved = True
+        if common.history: common.history.reset()
         #common.property_panel.Raise()
 
         if hasattr(self, 'file_history') and filename is not None and add_to_history and \
@@ -1134,12 +1149,16 @@ class wxGladeFrame(wx.Frame):
 
     def save_app_as(self):
         "saves a wxGlade project onto an xml file chosen by the user"
-        # both flags occurs several times
+        if common.root.filename:
+            default_path, default_filename = os.path.split(common.root.filename)
+        else:
+            default_path, default_filename = self.cur_dir, "wxglade.wxg"
         fn = wx.FileSelector( _("Save project as..."),
                               wildcard="wxGlade files (*.wxg)|*.wxg|wxGlade Template files (*.wgt) |*.wgt|"
                               "XML files (*.xml)|*.xml|All files|*",
                               flags=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
-                              default_filename=common.root.filename or (self.cur_dir+os.sep+"wxglade.wxg"))
+                              default_path=default_path,
+                              default_filename=default_filename)
         if not fn: return
 
         # check for file extension and add default extension if missing

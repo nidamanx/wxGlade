@@ -3,7 +3,7 @@ wxButton objects
 
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2014-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -81,6 +81,7 @@ class EditButton(BitmapMixin, ManagedBase, EditStylesMixin):
             if self.properties["stockitem"].is_active():
                 self.properties["label"].set_blocked(True)
                 new_id = "wxID_" + self.stockitem
+                if common.history: common.history.monitor_property( self.properties["id"] )
                 self.properties["id"].set( new_id, deactivate=True )
                 #self.properties["id"].default_value = new_id  # avoid this value to be written to XML
 

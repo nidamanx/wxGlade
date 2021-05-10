@@ -3,7 +3,7 @@ wxToolBar objects
 
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2014-2016 Carsten Grohmann
-@copyright: 2017-2020 Dietmar Schwertberger
+@copyright: 2017-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -11,7 +11,7 @@ from __future__ import absolute_import
 
 import wx
 
-import common, compat, config, misc
+import common, compat, config, misc, clipboard
 import os, re
 from .tool import *
 import new_properties as np
@@ -587,35 +587,35 @@ class EditToolBar(EditBase, PreviewMixin, EditStylesMixin, BitmapMixin):
             common.app_tree.Collapse(self.item)
             common.app_tree.select_item(self.parent)
 
-    def remove(self):
-        EditBase.remove(self)
+    def remove(self, user=True):
+        EditBase.remove(self, user=user)
         if 'toolbar' in self.parent.properties:
             self.parent.properties['toolbar'].set(False)
+        return None   # explicitely return not a Slot; see history
 
     ####################################################################################################################
-    def popup_menu(self, event, pos=None):
-        if not self.IS_TOPLEVEL: return
-        super(EditToolBar, self).popup_menu(event, pos)
 
     def _create_popup_menu(self, widget):
         menu = misc.wxGladePopupMenu(self.name)
 
-        if self.widget and self.is_visible():
-            item = misc.append_menu_item(menu, -1, _('Hide'))
-            misc.bind_menu_item_after(widget, item, self.hide_widget)
-        else:
-            i = misc.append_menu_item(menu, -1, _('Show'))
-            misc.bind_menu_item_after(widget, i, common.app_tree.show_toplevel, None, self)
-        menu.AppendSeparator()
+        if self.IS_TOPLEVEL:
+            if self.widget and self.is_visible():
+                item = misc.append_menu_item(menu, -1, _('Hide'))
+                misc.bind_menu_item_after(widget, item, self.hide_widget)
+            else:
+                i = misc.append_menu_item(menu, -1, _('Show'))
+                misc.bind_menu_item_after(widget, i, common.app_tree.show_toplevel, None, self)
+            menu.AppendSeparator()
 
         i = misc.append_menu_item(menu, -1, _('Remove ToolBar\tDel'), wx.ART_DELETE)
         misc.bind_menu_item_after(widget, i, self.remove)
+        i = misc.append_menu_item(menu, -1, _('Copy\tCtrl+C'), wx.ART_COPY)
+        misc.bind_menu_item_after(widget, i, clipboard.copy, self)
+        i = misc.append_menu_item(menu, -1, _('Cut\tCtrl+X'),  wx.ART_CUT)
+        misc.bind_menu_item_after(widget, i, clipboard.cut, self)
 
         item = misc.append_menu_item(menu, -1, _('Edit tools ...'))
         misc.bind_menu_item_after(widget, item, self.properties["tools"].edit_tools)
-
-        item = misc.append_menu_item(menu, -1, _('Hide'))
-        misc.bind_menu_item_after(widget, item, self.hide_widget)
 
         return menu
 

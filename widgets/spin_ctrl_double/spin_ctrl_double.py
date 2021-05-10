@@ -3,7 +3,7 @@ wxSpinCtrlDouble objects
 
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2014-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -75,6 +75,7 @@ class EditSpinCtrlDouble(ManagedBase, EditStylesMixin):
         if not modified or "value" in modified or "range" in modified:
             # check that value is inside range
             value_p = self.properties["value"]
+            if common.history: common.history.monitor_property( value_p )
             if value_p.is_active():
                 mi,ma = self.properties["range"].get_tuple()
                 value = value_p.get()

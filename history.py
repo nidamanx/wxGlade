@@ -1,48 +1,298 @@
 """\
 history for undo/redo/repeat
 
-copyright: 2017-2020 Dietmar Schwertberger
+copyright: 2017-2021 Dietmar Schwertberger
 license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
-import common, config, clipboard
+import common, config, clipboard, misc
+import wx
+
+
+def copy_value(prop):
+    # make a copy for lists or sets
+    if hasattr(prop, "value_set"):
+        value = prop.value_set
+    else:
+        value = prop.value
+    if isinstance(value, list):
+        if value and isinstance(value[0], list):
+            return [v[:] for v in value]
+        else:
+            return value[:]
+    elif isinstance(value, set):
+        return set(value)
+    return value
 
 
 class PropertyValue(object):
-    def __init__(self, deactivated, value, modified):
-        self.deactivated = deactivated
-        self.value = value
-        self.modified = modified
+    # used by HistoryPropertyItem to track old and new value and state of a property
+    def __init__(self, prop):
+        self.deactivated = prop.deactivated
+        self.value = copy_value(prop)
+
+    def set(self, p):
+        # apply value to a property instance
+        if hasattr(p, "value_set"):
+            p.value_set.clear()
+            p.value_set.update(self.value)
+            p.value = None
+        else:
+            value = p.value
+            # lists and sets are modified in place
+            if isinstance(value, list):
+                value[:] = self.value
+            elif isinstance(value, set):  # not yet used
+                value.clear()
+                value.update(self.value)
+            else:
+                p.value = self.value
+        activate = self.deactivated!=p.deactivated
+        p.deactivated = self.deactivated
+        p.update_display()
+        if activate: p.activate_controls()
+
+    def __eq__(self, other):
+        return self.deactivated==other.deactivated and self.value==other.value
+
     def __repr__(self):
-        return "(%r, %r, %r)"%(self.deactivated, self.value, self.modified)
+        return "(%r, %r)"%(self.deactivated, self.value)
+
 
 class HistoryItem(object):
     def __init__(self, prop):
         self.path = prop.owner.get_path()
         self.name = prop.name
+
     def get_key(self):
         return self.name
 
+
 class HistoryPropertyItem(HistoryItem):
-    def __init__(self, prop, old, new):
+    def __init__(self, prop):
         HistoryItem.__init__(self, prop)
-        if isinstance(old, tuple): old = PropertyValue(*old)
-        if isinstance(new, tuple): new = PropertyValue(*new)
-        self.old = old
-        self.new = new
+        self._prop = prop  # keep a reference until finalize is called
+        self.old = PropertyValue(prop)
+        self.new = None
+        self.dependent = []
+
+    def finalize(self, monitor):
+        self.new = PropertyValue(self._prop)
+        self._prop = None
+        # check whether other, depending properties were changed as well
+        for prop, old in monitor:
+            new = PropertyValue(prop)
+            if new!=old:
+                self.dependent.append( [prop.owner.get_path(), prop.name, old, new] )
+
+    def undo(self):
+        owner = common.root.find_widget_from_path(self.path)
+        p = owner.properties[self.name]
+        self.old.set(p)
+        changed = [self.name]
+        for path, name, old, new in self.dependent:
+            changed.append(name)
+            if path==self.path:
+                old.set( owner.properties[name] )
+            else:
+                owner_ = common.root.find_widget_from_path(self.path)
+                old.set( owner_.properties[name] )
+        owner.properties_changed(changed)
+        misc.set_focused_widget(owner)
+
+    def redo(self):
+        owner = common.root.find_widget_from_path(self.path)
+        p = owner.properties[self.name]
+        self.new.set(p)
+        changed = [self.name]
+        for path, name, old, new in self.dependent:
+            changed.append(name)
+            if path==self.path:
+                new.set( owner.properties[name] )
+            else:
+                owner_ = common.root.find_widget_from_path(self.path)
+                new.set( owner_.properties[name] )
+        owner.properties_changed(changed)
+        misc.set_focused_widget(owner)
+
     def __repr__(self):
         return "%s(%s, %r, %r, %r)"%(self.__class__.__name__, self.path, self.name, self.old, self.new)
 
 
 class HistorySetPropertyItem(HistoryPropertyItem):
-    def __init__(self, prop, value, checked):
-        HistoryItem.__init__(self, prop)
-        self.value = value
-        self.checked = checked
+    # same as before, but tracks the flag that was checked/unchecked (self.flag_value, self.checked)
+    def __init__(self, prop):
+        HistoryPropertyItem.__init__(self, prop)
+        self.flag_value = self.checked = None
+
     def __repr__(self):
-        return "%s(%s, %s, %r, %r)"%(self.__class__.__name__, self.path, self.name, self.value, self.checked)
+        return "%s(%s, %s, %r, %r)"%(self.__class__.__name__, self.path, self.name, self.flag_value, self.checked)
+
     def get_key(self):
-        return (self.name, self.value)
+        return (self.name, self.flag_value)
+
+
+class HistoryRemovedItem(HistoryItem):
+    def __init__(self, widget):
+        self.IS_SLOT = widget.IS_SLOT
+        self.index = widget.index
+        self.path = widget.get_path()
+        self.xml_data = clipboard.dump_widget(widget)
+        self.slot_path = self.slot_tab = None
+
+        parent = widget.parent
+        if widget.IS_SLOT and parent.IS_CONTAINER and parent.check_prop("tabs"):
+            # a slot / page is being removed from a notebook -> store tab name
+            self.slot_tab = parent.tabs[widget.index][0]
+
+    def finalize(self, slot=None):
+        if slot:
+            # a slot has been left
+            self.slot_path = slot.get_path()
+
+    def undo(self):
+        # identical to HistoryAddedItem.redo, except for the slot_tab part
+        path = self.slot_path or self.path.rsplit("/",1)[0]  # slot or parent
+        widget = common.root.find_widget_from_path(path)
+        if widget.IS_ROOT:# or widget.IS_CONTAINER:
+            widget.clipboard_paste(self.xml_data, self.index)
+        elif self.IS_SLOT:
+            widget.insert_item(None, self.index)  # placeholder
+            if self.slot_tab is not None:
+                tabs_p = widget.properties["tabs"]
+                tabs_p.value.insert(self.index, [self.slot_tab])
+                tabs_p.reset()
+            if widget.IS_SIZER:
+                from edit_sizers import SizerSlot as Slot
+            else:
+                from edit_base import Slot
+            slot = Slot(widget, index=self.index)
+            if widget.widget:
+                slot.create_widget()
+                widget.child_widget_created(slot, 0)
+            # update structure
+            misc.rebuild_tree( widget, focus=False )
+            # update following slots
+            for c in widget.children[self.index+1:]:
+                if c.IS_SLOT: common.app_tree.refresh(c)
+            misc.set_focused_widget(slot)
+        else:
+            widget.clipboard_paste(self.xml_data)
+
+    def redo(self):
+        # identical to HistoryAddedItem.undo
+        widget = common.root.find_widget_from_path(self.path)
+        slot = widget.remove(user=False)
+        if slot is not None and not self.slot_path:
+            # a slot has been left there, but should not be
+            slot.remove(user=False)
+
+
+class HistoryAddedItem(HistoryItem):
+    def __init__(self, parent, xml_data=None):
+        self.slot_path = parent.IS_SLOT and parent.get_path() or None
+        self.xml_data = xml_data  # could be set on undo
+        self.path = self.index = None
+
+    def finalize(self, item):
+        self.path = item.get_path()
+        self.index = item.index
+        self.IS_SLOT = item.IS_SLOT
+
+    def undo(self):
+        # identical to HistoryRemovedItem.redo
+        widget = common.root.find_widget_from_path(self.path)
+        if self.xml_data is None: self.xml_data = clipboard.dump_widget(widget)
+        slot = widget.remove(user=False)
+        if slot is not None and not self.slot_path:
+            # a slot has been left there, but should not be
+            slot.remove(user=False)
+
+    def redo(self):
+        # identical to HistoryRemovedItem.undo, except for the slot_tab part
+        path = self.slot_path or self.path.rsplit("/",1)[0]  # slot or parent
+        widget = common.root.find_widget_from_path(path)
+        if widget.IS_ROOT:# or widget.IS_CONTAINER:
+            widget.clipboard_paste(self.xml_data, self.index)
+        elif self.IS_SLOT:
+            widget.insert_item(None, self.index)  # placeholder
+            #if self.slot_tab is not None:
+                #tabs_p = widget.properties["tabs"]
+                #tabs_p.value.insert(self.index, [self.slot_tab])
+                #tabs_p.reset()
+            if widget.IS_SIZER:
+                from edit_sizers import SizerSlot as Slot
+            else:
+                from edit_base import Slot
+            slot = Slot(widget, index=self.index)
+            if widget.widget:
+                slot.create_widget()
+                widget.child_widget_created(slot, 0)
+            # update structure
+            misc.rebuild_tree( widget, focus=False )
+            # update following slots
+            for c in widget.children[self.index+1:]:
+                if c.IS_SLOT: common.app_tree.refresh(c)
+            misc.set_focused_widget(slot)
+        else:
+            widget.clipboard_paste(self.xml_data)
+
+
+class HistorySizerSlots(HistoryItem):
+    # for added/inserted slots
+    def __init__(self, sizer, index, count=1):
+        self.path = sizer.get_path()
+        self.index = index
+        self.count = count
+
+    def undo(self):
+        sizer = common.root.find_widget_from_path(self.path)
+        for n in range(self.count):
+            sizer.children[self.index].remove(user=False)
+
+    def redo(self):
+        sizer = common.root.find_widget_from_path(self.path)
+        with sizer.window.frozen():
+            for n in range(self.count):
+                if self.index==-1:
+                    sizer._add_slot()
+                else:
+                    sizer._insert_slot(self.index+n)
+            if sizer.widget: sizer.layout()
+        misc.rebuild_tree( sizer, recursive=False, focus=False )
+
+
+class HistoryGridSizerRowCol(HistoryItem):
+    # for added / removed rows / cols
+    def __init__(self, sizer, type, index, count=1, inserted_slots=None):
+        # count: negative if removed
+        self.path = sizer.get_path()
+        self.type = type  # "row" or "col"
+        self.index = index  # row or column index
+        self.count = count
+        self.inserted_slots = inserted_slots
+
+    def undo(self):
+        sizer = common.root.find_widget_from_path(self.path)
+        if self.type=="row" and self.count==1:
+            sizer.remove_row(self.index, user=False, remove_slots=self.inserted_slots)
+        elif self.type=="row" and self.count==-1:
+            sizer.insert_row(self.index, user=False)
+        elif self.type=="col" and self.count==1:
+            sizer.remove_col(self.index, user=False, remove_slots=self.inserted_slots)
+        elif self.type=="col" and self.count==-1:
+            sizer.insert_col(self.index, user=False)
+
+    def redo(self):
+        sizer = common.root.find_widget_from_path(self.path)
+        if self.type=="row" and self.count==1:
+            sizer.insert_row(self.index, user=False)
+        elif self.type=="row" and self.count==-1:
+            sizer.remove_row(self.index, user=False)
+        elif self.type=="col" and self.count==1:
+            sizer.insert_col(self.index, user=False)
+        elif self.type=="col" and self.count==-1:
+            sizer.remove_col(self.index, user=False)
 
 
 class History(object):
@@ -54,7 +304,14 @@ class History(object):
         self._redo_widget = None # the widget that originally was modified
         self._redo_info = []  # name of properties
         self._repeating = False
-        self.can_redo = self.can_repeat = False
+        self.can_undo = self.can_redo = self.can_repeat = False
+
+    def reset(self):
+        del self.actions[:]
+        del self.actions_redo[:]
+        self.can_undo = False
+        self.can_redo = False
+        self.can_repeat = len(self._redo_info) > 1
 
     def set_widget(self, widget):
         # for enabling/disabling tools and menus
@@ -64,22 +321,32 @@ class History(object):
         else:
             self.can_redo = True
             self.can_repeat = len(self._redo_info) > 1
+        self.can_undo = bool(self.actions)
 
     def undo(self, focused_widget):
-        pass
+        if not self.actions:
+            return wx.Bell()
+        action = self.actions.pop(0)
+        action.undo()
+        self.actions_redo.append(action)
 
     def redo(self, focused_widget):
         if not self.actions_redo:
-            self.repeat(focused_widget, multiple=False)
+            # XXX check whether it's the same
+            repeated = self.repeat(focused_widget, multiple=False)
+            if not repeated: wx.Bell()
             return
+        action = self.actions_redo.pop(-1)
+        action.redo()
+        self.actions.insert(0, action)
 
     def repeat(self, focused_widget, multiple=True):
         "apply action(s) to another widget"
-        if focused_widget is None: return
-        if not self.actions or not isinstance(self.actions[0], HistoryPropertyItem): return
-        if not self._redo_widget: return
+        if focused_widget is None: return False
+        if not self.actions or not isinstance(self.actions[0], HistoryPropertyItem): return False
+        if not self._redo_widget: return False
         path = focused_widget.get_path()
-        if path==self._redo_widget: return
+        if path==self._redo_widget: return False
 
         # find all actions that could be repeated; they need to be HistoryPropertyItems from the _redo_widget
         repeat_actions = []
@@ -103,7 +370,7 @@ class History(object):
                 print("Repeating %s"%action)
             prop = focused_widget.properties[action.name]
             if isinstance(action, HistorySetPropertyItem):
-                prop._change_value(action.value, action.checked)
+                prop._change_value(action.flag_value, action.checked)
             elif isinstance(action, HistoryPropertyItem):
                 if prop.deactivated is None:
                     # a property that can not be deactivated
@@ -112,8 +379,9 @@ class History(object):
                     force = action.new.deactivated!=prop.deactivated
                     prop._check_for_user_modification(action.new.value, force=force, activate=not action.new.deactivated)
         self._repeating = False
+        return True
 
-    def _add_item(self, item):
+    def add_item(self, item):
         self.actions.insert(0, item)
         if len(self.actions)>self.depth:
             del self.actions[-1]
@@ -135,30 +403,76 @@ class History(object):
                 print(entry)
 
     ####################################################################################################################
-    # interface from Property instances
+    # property changes: interface from Property instances
     def property_changing(self, prop):
         "to be called when property value is still the old one"
-        value = prop.value
-        self._buffer = (prop.deactivated, prop.value, prop.modified)
+        if config.debugging: print("property_changing", prop)
+        self._buffer = HistoryPropertyItem(prop)
+        self._monitor = []  # list of (property, PropertyValue)
+
+    def set_property_changing(self, prop):
+        # same as before, but this will track the clicked flag
+        if config.debugging: print("set_property_changing", prop)
+        self._buffer = HistorySetPropertyItem(prop)
+        self._monitor = []  # list of (property, PropertyValue)
+
+    def monitor_property(self, prop):
+        # monitor dependent properties; these will be un-/re-done together with the main property
+        if not self._buffer: return
+        self._monitor.append( (prop, PropertyValue(prop)))
+
+    def _finalize_item(self, stop=False):
+        # helper
+        item = self._buffer
+        self._buffer = None  if not stop else  False
+        item.finalize(self._monitor)
+        del self._monitor
+        return item
 
     def property_changed(self, prop, user=True):
         "argument user: True if set by the user, False if set in dependence to another change"
-        old = self._buffer
-        new = (prop.deactivated, prop.value, prop.modified)
-        self._buffer = None
-        if new==old: return
-        self._add_item( HistoryPropertyItem(prop,old, new) )
+        if config.debugging: print("property_changed", prop, user)
+        if self._buffer is False:  # e.g. handled already by another item, e.g. HistoryNotebookTabsItem
+            self._buffer = None
+            return
+
+        item = self._finalize_item()
+        if item.new==item.old: return
+        self.add_item(item)
 
     def set_property_changed(self, prop, value, checked, user=True):
-        self._add_item( HistorySetPropertyItem(prop, value, checked) )
+        if self._buffer:
+            # track which checkbox was checked
+            self._buffer.flag_value = value
+            self._buffer.checked = checked
+        self.property_changed(prop, user=True)
 
-    def widget_added(self):
-        self.actions.append( ("widget", path, "add", xml_data))
-        pass
+    ####################################################################################################################
+    # structural changes
+    def widget_adding(self, parent, xml_data=None):
+        # for pasting or single widget dropping
+        # parent can be a slot, which will be filled/replaced
+        # or e.g. a panel where a sizer will be added without having a slot before
+        self._adding_buffer = HistoryAddedItem(parent, xml_data)
+
+    def widget_added(self, widget):
+        self._adding_buffer.finalize(widget)
+        self.add_item( self._adding_buffer )
+        self._adding_buffer = None
 
     def widget_removing(self, widget):
-        self._buffer = clipboard.dump_widget(widget)
+        # store information and XML data before the widget is actually removed
+        self._buffer = HistoryRemovedItem(widget)
 
-    def widget_removed(self):
-        self.actions.append( ("widget", path, "remove", self._buffer))
+    def widget_removed(self, slot=None):
+        self._buffer.finalize(slot)
+        self.add_item( self._buffer )
         self._buffer = None
+
+    # sizers
+    def sizer_slots_added(self, sizer, index, count):
+        # called from SizerBase.insert_slot and add_slot
+        self.add_item( HistorySizerSlots(sizer, index, count) )
+
+    def gridsizer_row_col_changed(self, sizer, type, index, count, inserted_slots=None):
+        self.add_item( HistoryGridSizerRowCol(sizer, type, index, count, inserted_slots) )

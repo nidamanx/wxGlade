@@ -3,7 +3,7 @@ Support for cut & paste of wxGlade widgets
 
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -24,9 +24,10 @@ else:
 widget_data_format = DataFormat("wxglade.widget")  # a serialized widget
 sizer_data_format  = DataFormat("wxglade.sizer")   # a serialized sizer
 window_data_format = DataFormat("wxglade.window")  # a toplevel window
+slot_data_format   = DataFormat("wxglade.slot")    # a serialized slot; actually, for now this can't be pasted
 
-menubar_data_format = DataFormat("wxglade.menubar")  # a serialized menubar
-toolbar_data_format = DataFormat("wxglade.toolbar")  # a serialized toolbar
+menubar_data_format   = DataFormat("wxglade.menubar")    # a serialized menubar
+toolbar_data_format   = DataFormat("wxglade.toolbar")    # a serialized toolbar
 statusbar_data_format = DataFormat("wxglade.statusbar")  # a serialized statusbar
 
 
@@ -217,19 +218,24 @@ class DropTarget(wx.DropTarget):
         return default
 
     def _OnData(self, drag_source, src_widget, dst_widget, data, copy):
+        xml_data = clipboard2widget(data)
         if drag_source and not copy:
             with src_widget.frozen():
-                src_widget.remove()
-                dst_widget.clipboard_paste(data)
+                src_widget.remove(user=True)
+                if common.history: common.history.widget_adding(dst_widget, xml_data)
+                pasted = dst_widget.clipboard_paste(xml_data)
+                if common.history: common.history.widget_added(pasted)
         else:
-            dst_widget.clipboard_paste(data)
+            if common.history: common.history.widget_adding(dst_widget, xml_data)
+            pasted = dst_widget.clipboard_paste(xml_data)
+            if common.history: common.history.widget_added(pasted)
 
     def OnLeave(self):
         self.fmt = None
 
 
 def get_data_object(widget):
-    data = dump_widget(widget)
+    data = widget2clipboard( *dump_widget(widget) )
     # make a data object
     if widget.IS_SIZER:
         do = wx.CustomDataObject(sizer_data_format)
@@ -241,6 +247,8 @@ def get_data_object(widget):
         do = wx.CustomDataObject(statusbar_data_format)
     elif widget.IS_TOPLEVEL:
         do = wx.CustomDataObject(window_data_format)
+    elif widget.IS_SLOT:  # actually, this can't be pasted anywhere for now
+        do = wx.CustomDataObject(slot_data_format)
     else:
         do = wx.CustomDataObject(widget_data_format)
     do.SetData(data)
@@ -254,13 +262,13 @@ def dump_widget(widget):
     "build the XML string and pickle it together with the layout properties"
     xml_unicode = []
     widget.write(xml_unicode, 0)
-    flag = option = span = border = None
+
     flag = widget.properties.get("flag")
     if flag is not None: flag = flag.get_string_value()
     proportion = getattr(widget, "proportion", 0)
     span = getattr(widget, "span", (1,1))
     border  = getattr(widget, "border", 0)
-    return widget2clipboard( proportion, span, flag, border, "".join(xml_unicode) )
+    return ( proportion, span, flag, border, "".join(xml_unicode) )
 
 
 def widget2clipboard(option, span, flag, border, xml_unicode):
@@ -276,6 +284,7 @@ def clipboard2widget(clipboard_data):
     """Convert widget data prepared in widget2clipboard() back to single values.
 
     Returns a list [option (proportions), flag, border and widget in XML representation]"""
+    if isinstance(clipboard_data, tuple): return clipboard_data
     if isinstance(clipboard_data, memoryview) and sys.version_info[0]<3:
         clipboard_data = clipboard_data.tobytes()
     option, span, flag, border, xml_unicode = compat.pickle.loads(clipboard_data)
@@ -288,7 +297,7 @@ def clipboard2widget(clipboard_data):
     if option is not None: option = int(option)
     if border is not None: border = int(border)
 
-    return option, span, flag, border, xml_unicode
+    return (option, span, flag, border, xml_unicode)
 
 
 def copy(widget):
@@ -305,7 +314,7 @@ def copy(widget):
 def cut(widget):
     "Store a copy of self into the clipboard and delete the widget; returns True on success"
     if copy(widget):
-        widget.remove()
+        widget.remove(user=True)
         return True
     else:
         return False
@@ -314,14 +323,13 @@ def cut(widget):
 def paste(widget):
     """Copies a widget (and all its children) from the clipboard to the given
     destination (parent, sizer and position inside the sizer). Returns True on success."""
-    error = None
     if not wx.TheClipboard.Open():
         misc.error_message( "Clipboard can't be opened." )
         return False
 
     try:
         data_object = None
-        for fmt in [widget_data_format, sizer_data_format, window_data_format,
+        for fmt in [widget_data_format, sizer_data_format, slot_data_format, window_data_format,
                     menubar_data_format, toolbar_data_format, statusbar_data_format]:
             if wx.TheClipboard.IsSupported(fmt):
                 data_object = wx.CustomDataObject(fmt)
@@ -341,14 +349,19 @@ def paste(widget):
         if message:
             misc.error_message(message)
         return False
-    if not widget.clipboard_paste(data_object.GetData()):
+    xml_data = clipboard2widget( data_object.GetData() )
+    if common.history: common.history.widget_adding(widget, xml_data)
+    pasted = widget.clipboard_paste(xml_data)
+    if not pasted:
         misc.error_message("Paste failed")
+        return
+    if common.history: common.history.widget_added(pasted)
 
 
-def _paste(parent, index, clipboard_data):
+def _paste(parent, index, clipboard_data, rebuild_tree=True):
     "parse XML and insert widget"
     option, span, flag, border, xml_unicode = clipboard2widget( clipboard_data )
-    if not xml_unicode: return False
+    if not xml_unicode: return None
     import xml_parse
     try:
         wx.BeginBusyCursor()
@@ -360,11 +373,11 @@ def _paste(parent, index, clipboard_data):
             if parent and hasattr(parent, "on_child_pasted"):
                 parent.on_child_pasted()  # trigger e.g. re-sizing of the children
         freeze = parser._object_counter>80  # for more objects, we freeze the Tree during re-build
-        misc.rebuild_tree( parser.top_obj, freeze=freeze )
-        return True  # Widget hierarchy pasted.
+        if rebuild_tree: misc.rebuild_tree( parser.top_obj, freeze=freeze )
+        return parser.top_obj  # Widget hierarchy pasted.
     except xml_parse.XmlParsingError:
         if config.debugging: raise
-        return False
+        return None
     finally:
         wx.EndBusyCursor()
 
@@ -374,9 +387,12 @@ def check(*formats):
     if not wx.TheClipboard.IsOpened():
         try:
             wx.TheClipboard.Open()
-            if "widget" in formats and wx.TheClipboard.IsSupported(widget_data_format): return True
-            if "window" in formats and wx.TheClipboard.IsSupported(window_data_format): return True
-            if "sizer"  in formats and wx.TheClipboard.IsSupported(sizer_data_format):  return True
+            if "widget"    in formats and wx.TheClipboard.IsSupported(widget_data_format): return True
+            if "window"    in formats and wx.TheClipboard.IsSupported(window_data_format): return True
+            if "sizer"     in formats and wx.TheClipboard.IsSupported(sizer_data_format):  return True
+            if "menubar"   in formats and wx.TheClipboard.IsSupported(menubar_data_format):  return True
+            if "toolbar"   in formats and wx.TheClipboard.IsSupported(toolbar_data_format):  return True
+            if "statusbar" in formats and wx.TheClipboard.IsSupported(statusbar_data_format):  return True
         finally:
             wx.TheClipboard.Close()
     return False

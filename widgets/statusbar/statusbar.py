@@ -3,7 +3,7 @@ wxFrame and wxStatusBar objects
 
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2014-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -77,9 +77,10 @@ class EditStatusBar(EditBase, EditStylesMixin):
         if self.parent.widget:
             self.parent.widget.SetStatusBar(self.widget)
 
-    def remove(self):
-        EditBase.remove(self)
+    def remove(self, user=True):
+        EditBase.remove(self, user=user)
         self.parent.properties['statusbar'].set(False)
+        return None   # explicitely return not a Slot; see history
 
     def _set_fields(self):
         if not self.widget: return

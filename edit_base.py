@@ -403,11 +403,14 @@ class EditBase(np.PropertyOwner):
         if not self.IS_TOPLEVEL and self.IS_NAMED and self.name:
             self.toplevel_parent.track_contained_name( self.name )
 
-    def remove(self, focus=True):
+    def remove(self, focus=True, user=True):
         # entry point from GUI or script
-        common.root.saved = False   # update the status of the app
+        if user:
+            common.history.widget_removing(self)
+            common.root.saved = False   # update the status of the app
         self.recursive_remove(level=0)
         misc.rebuild_tree(self.parent, recursive=False, focus=focus)
+        if user: common.history.widget_removed(None)
 
     # XML generation ###################################################################################################
     def get_editor_name(self):
@@ -470,6 +473,11 @@ class EditBase(np.PropertyOwner):
             if child is None:
                 if max_index is not None and index>max_index: continue
                 Slot(self, index)
+
+    def _add_slot(self):
+        # used when loading or pasting an (optional) slot to a panel
+        self.children.append(None)
+        self._add_slots()  # replace the None with a slot
 
     def on_load(self, child=None):
         "called from XML parser, right after the widget is loaded; children have been loaded already"
@@ -743,12 +751,12 @@ class Slot(EditBase):
 
                 # allow removal of empty row
                 i = misc.append_menu_item(menu, -1, _('Remove Row %d'%(row+1)) )
-                misc.bind_menu_item_after(widget, i, self.parent.remove_row, self.index)
+                misc.bind_menu_item_after(widget, i, self.parent.remove_row, row)
                 if not row_is_empty or rows<=1: i.Enable(False)
 
                 # allow removal of empty col
                 i = misc.append_menu_item(menu, -1, _('Remove Column %d'%(col+1)) )
-                misc.bind_menu_item_after(widget, i, self.parent.remove_col, self.index)
+                misc.bind_menu_item_after(widget, i, self.parent.remove_col, col)
                 if not col_is_empty or cols<=1: i.Enable(False)
                 menu.AppendSeparator()
 
@@ -769,10 +777,10 @@ class Slot(EditBase):
         return menu
 
     ####################################################################################################################
-    def remove(self):
+    def remove(self, user=True):
         # entry point from GUI
         i = self.index
-        EditBase.remove(self, focus=False)
+        EditBase.remove(self, focus=False, user=user)
         if i >= len(self.parent.children): i = len(self.parent.children)-1
         # set focused widget
         if i>=0:
@@ -795,6 +803,7 @@ class Slot(EditBase):
         if self.widget:
             self.widget.SetCursor(wx.NullCursor)
         common.adding_window = event and event.GetEventObject().GetTopLevelParent() or None
+        common.history.widget_adding(self)
         # call the appropriate builder
         new_widget = common.widgets[common.widget_to_add](self.parent, self.index)
         if new_widget is None: return
@@ -811,7 +820,8 @@ class Slot(EditBase):
             elif new_widget.IS_SIZER:
                 widget = new_widget.toplevel_parent_window.widget
             if hasattr(widget, "SetFocus"):
-                widget.SetFocus()  
+                widget.SetFocus()
+        common.history.widget_added(new_widget)
 
     def check_drop_compatibility(self):
         if common.adding_sizer and self.parent.IS_CONTAINER:
@@ -879,7 +889,8 @@ class Slot(EditBase):
             misc.set_focused_widget(None)
 
     def write(self, output, tabs):
-        return
+        if self.parent.CHILDREN==-1:
+            output.extend( common.format_xml_tag( u'object', '', tabs, **{'class': 'slot'}) )
 
     # for tree and help display ########################################################################################
     def _get_tree_label(self):

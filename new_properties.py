@@ -5,7 +5,7 @@ File has been created in 2016; parts are from the old version of widget_properti
 
 Interface to owner modified; see below for class PropertyOwner
 
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -74,7 +74,6 @@ class Property(object):
         self.owner = None
         self.name = name
         self.attributename = None
-        self.modified = False  # either by the user or from loaded file; WidgetStyleProperty.write uses it
         # this can be set to True by the owner, depending on another property value; value will still be written to XML
         self.blocked = False
         self.default_value = default_value
@@ -103,7 +102,6 @@ class Property(object):
         updates display if editor is visible; doesn't notify owner or application!
         optionally, the property will be activated or deactivated"""
         self.value = self._set_converter(value)
-        self.modified = True
         if activate is None and deactivate is None:
             self.update_display()
             if notify: self._notify()
@@ -165,10 +163,9 @@ class Property(object):
         """called from self when the user has entered a new value or de-/activated the property
         controls need not to be set, but the owner needs to be notified and the application"""
         common.history.property_changing(self)
-        if active is not None:
+        if active is not None and self.deactivated is not None:
             self.deactivated = not active
         self.previous_value = self.value  # this does not work always, e.g. for GridProperty which may edit in place
-        previous_modified = self.modified
         self.set(value)
         self._notify()
         common.history.property_changed(self)
@@ -184,15 +181,12 @@ class Property(object):
             if self.editing:
                 self.update_display()
             return False
-        if activate or force:
-            self.deactivated = not activate
-        self.on_value_edited(new_value)
-        if activate or force:
+        self.on_value_edited(new_value, activate or force or None)
+        if (activate or force) and self.deactivated is not None:
             self.activate_controls()
         return True
 
     def _notify(self):
-        self.modified = True
         common.root.saved = False
         self.owner.properties_changed([self.name])
 
@@ -867,17 +861,9 @@ class _CheckListProperty(Property):
     def get_string_value(self):
         "Return the selected styles joined with '|', for writing to XML file"
         if not self.value_set: return ""
-        # handle combinations: remove the individual components
-        value_set = set(self.value_set)
-        #for name in self._names:
-            #combination = self.style_defs[name].get("combination",[])
-            #if combination and name in value_set or value_set.intersection(combination)==combination:
-                #value_set.add(name)
-                #value_set -= combination
-
         ret = []
         for name in self._names:
-            if name in value_set:
+            if name in self.value_set:
                 ret.append(name)
         return '|'.join(ret)
 
@@ -920,36 +906,48 @@ class _CheckListProperty(Property):
 
     def _change_value(self, value, checked):
         "user has clicked checkbox or History is setting"
-        self.previous_value = set(self.value_set)
+        self.previous_value = self.value_set.copy()
+
+        # make a copy of the current set value and replace combinations w. single flags, as these may need to be excluded
+        value_set = self.value_set.copy()
+        for name in self.value_set:
+            combination = self.style_defs[name].get("combination",[])
+            if combination:
+                value_set.update(combination)
+                value_set.remove(name)
+
+        values = self.style_defs[value].get("combination",[value])
         if checked:
-            if value in self.value_set: return
-            self.value_set.add(value)
-            if self.EXCLUDES:
-                excludes = self.EXCLUDES.get(value, [])
-            else:
-                excludes = self.style_defs[value].get("exclude",[])
-            self.value_set.difference_update( excludes )
-            excludes = self.style_defs[value].get("disable",[])
-            self.value_set.difference_update( excludes )
+            if self.value_set.issuperset(values): return
+            value_set.update(values)
+            for value in values:
+                if self.EXCLUDES:
+                    excludes = self.EXCLUDES.get(value, [])
+                else:
+                    excludes = self.style_defs[value].get("exclude",[])
+                value_set.difference_update(excludes)
+                excludes = self.style_defs[value].get("disable",[])
+                value_set.difference_update(excludes)
         else:
-            if value in self.value_set:
-                self.value_set.remove(value)
-                self.value_set.difference_update( self.style_defs[value].get("combination",[]) )
+            value_set.difference_update(values)
+
+        if self._one_required and not value_set.intersection(self._one_required):
+            if value in self._one_required:
+                value_set.add(value)
             else:
-                # check if it was set due to a combination
-                for name in self._names:
-                    combination = self.style_defs[name].get("combination",[])
-                    if value in combination and name in self.value_set:
-                        self.value_set.remove(name)
-                        self.value_set.update(c for c in combination if c!=value)
+                value_set.add(self._one_required[0])
 
         # check for combinations: if all flags of a combination are in value_set, we need only the combination
         for name in self._names:
             combination = self.style_defs[name].get("combination",[])
-            if combination and self.value_set.issuperset(combination):
-                self.value_set.difference_update( combination )
-                self.value_set.add(name)
+            if combination and value_set.issuperset(combination):
+                value_set.difference_update(combination)
+                value_set.add(name)
 
+        # actually make the changes
+        common.history.set_property_changing(self)
+        self.value_set.clear()
+        self.value_set.update(value_set)
         self._check_value(checked and value or None)  # e.g. used by ManagedFlags
 
         self.value = None  # to be calculated on demand
@@ -1152,9 +1150,10 @@ class ManagedFlags(_CheckListProperty):
 
 class WidgetStyleProperty(_CheckListProperty):
     # for widget style flags; XXX handle combinations and exclusions
-    def __init__(self):
+    def __init__(self, value=0):
         # the value will be set later in set_owner()
         _CheckListProperty.__init__(self, value=0)
+        self._value = value
 
     def set_owner(self, owner, attname):
         "style information is taken from self.owner.widget_writer"
@@ -1165,10 +1164,10 @@ class WidgetStyleProperty(_CheckListProperty):
         self.styles["Style"] = widget_writer.style_list
         self._names = sum( self.styles.values(), [] )
         self._values = None
-        self.set(widget_writer.default_style)
-        self.default_value = set(self.value_set)
-        self.set("")
-        self.modified = False
+
+        self.default_value = self._decode_value( widget_writer.default_style )
+        self.set(self._value)
+        del self._value
 
     def set_to_default(self):
         # for use after interactively creating an instance
@@ -1253,7 +1252,6 @@ class WidgetStyleProperty(_CheckListProperty):
                 checkbox.Bind(wx.EVT_CHECKBOX, self.on_checkbox)
 
     def write(self, output, tabs=0):
-        if isinstance(self.default_value, set) and self.value_set==self.default_value and not self.modified: return
         value = self.get_string_value()
         if value:
             output.extend( common.format_xml_tag(self.name, value, tabs) )
@@ -1494,7 +1492,7 @@ class TextProperty(Property):
         elif warning:
             bgcolor = wx.Colour(255, 255, 0, 255)  # yellow
         else:
-            bgcolor = wx.WHITE
+            bgcolor = compat.wx_SystemSettings_GetColour(wx.SYS_COLOUR_WINDOW)
         self.text.SetBackgroundColour( bgcolor )
         self.text.Refresh()
 
@@ -2845,9 +2843,11 @@ class GridProperty(Property):
 
         indices = [int(i) if i else None  for i in self.indices]
         #self._changing_value = True
+        common.history.property_changing(self)
         old_value = self.value[:]
         self.value[:] = new_value
         setter(old_value, indices)
+        common.history.property_changed(self)
         #self._changing_value = False
         self.editing_values = None
         self._initialize_indices()
@@ -2859,11 +2859,12 @@ class GridProperty(Property):
     def flush(self):
         self.apply()
 
-    def reset(self, event):
+    def reset(self, event=None, update_display=True):
         "Discard the changes."
+        if self.editing_values is None: return
         self.editing_values = None
         self._initialize_indices()
-        self.update_display()
+        if update_display: self.update_display()
         if event: event.Skip()
 
     def _validate(self, row, col, value, bell=True):
@@ -2966,6 +2967,7 @@ class GridProperty(Property):
                 self.grid.SetCellValue(row, col, value)
 
         if self.immediate or (not self.can_add and not self.can_insert and not self.can_insert):
+            common.history.property_changing(self)
             if row>=len(self.value):
                 self.add_row(row=set_index, delay=delay)
             # immediate, i.e. no editing_values
@@ -2973,6 +2975,7 @@ class GridProperty(Property):
                 self.value[row] = self.default_row[:]
             self.value[row][col] = value
             self._notify()
+            common.history.property_changed(self)
             return True
 
         activate_apply = not self.editing_values
@@ -3451,7 +3454,7 @@ class PropertyOwner(object):
         return True
     
     def _properties_changed(self, modified, actions):
-        # action method(s)
+        # action method(s); check dependent properties and update widget
         pass
 
     def properties_changed(self, modified):

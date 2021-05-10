@@ -3,7 +3,7 @@ Base classes for windows used by wxGlade
 
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2014-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -378,8 +378,8 @@ class WindowBase(EditBase):
         if self.check_prop("size"):       self.set_size("size", "SetSize")
         if self.check_prop("min_size"):   self.set_size("min_size", "SetMinSize")
         if self.check_prop("max_size"):   self.set_size("max_size", "SetMaxSize")
-        if self.check_prop("background"): self.widget.SetBackgroundColour(self.background)
-        if self.check_prop("foreground"): self.widget.SetForegroundColour(self.foreground)
+        if self.check_prop("background"): self.widget.SetBackgroundColour(self.properties["background"].get_color())
+        if self.check_prop("foreground"): self.widget.SetForegroundColour(self.properties["foreground"].get_color())
 
         EditBase.finish_widget_creation(self, level)
 
@@ -668,10 +668,12 @@ class ManagedBase(WindowBase):
     def _properties_changed(self, modified, actions):
         WindowBase._properties_changed(self, modified, actions)
         p = self.properties["flag"]
+        if common.history: common.history.monitor_property( p )
         if modified and "flag" in modified and self.parent.IS_SIZER:
             p._check_value()
 
         if "flag" in modified and "wxSHAPED" in p.value_set and self.proportion:
+            if common.history: common.history.monitor_property( self.properties["proportion"] )
             self.properties["proportion"].set(0, notify=False)
         elif "option" in modified and self.proportion and "wxSHAPED" in p.value_set:
             p.remove("wxSHAPED", notify=False)
@@ -690,6 +692,7 @@ class ManagedBase(WindowBase):
                 max_span = self.sizer.check_span_range(self.index, *span_p.value)
                 max_span = ( min(span_p.value[0],max_span[0]), min(span_p.value[1],max_span[1]) )
                 if max_span!=span_p.value:
+                    if common.history: common.history.monitor_property( span_p )
                     span_p.set(max_span, notify=False)
             if self.parent.IS_SIZER:
                 self.sizer.item_properties_modified(self, modified)
@@ -733,11 +736,14 @@ class ManagedBase(WindowBase):
         "don't set focus"
         return self.parent._free_slot(self.index)
 
-    def remove(self):
+    def remove(self, user=True):
         # entry point from GUI
         #with self.frozen():  # this does not work on mac os: when deleting a panel notebook page, it will remain black
+        if user: common.history.widget_removing(self)
         slot = self._remove()
         misc.rebuild_tree(slot, recursive=False)
+        if user: common.history.widget_removed(slot)
+        return slot
 
     def on_mouse_events(self, event):
         if event.Dragging():
@@ -811,8 +817,8 @@ class TopLevelBase(WindowBase, PreviewMixin):
     _PROPERTY_HELP={ "extracode_pre": "This code will be inserted at the beginning of the constructor.",
                      "extracode_post":"This code will be inserted at the end of the constructor." }
 
-    def __init__(self, name, parent, klass, title=None):
-        WindowBase.__init__(self, name, parent, None, klass)
+    def __init__(self, name, parent, index, klass, title=None):
+        WindowBase.__init__(self, name, parent, index, klass)
         self._oldname = name
         if "title" in self.PROPERTIES:
             self.title = np.TextProperty(title if title is not None else name)
@@ -914,10 +920,23 @@ class TopLevelBase(WindowBase, PreviewMixin):
         misc.bind_menu_item_after(widget, i, self.duplicate)
 
         # paste
-        i = misc.append_menu_item(menu, -1, _('Paste Sizer\tCtrl+V'), wx.ART_PASTE)
-        misc.bind_menu_item_after(widget, i, clipboard.paste, self)
-        # XXX change later on to allow other widgets to be pasted
-        if self.children or not clipboard.check("sizer"): i.Enable(False)
+        if clipboard.check("menubar") and "menubar" in self.properties:
+            i = misc.append_menu_item(menu, -1, _('Paste MenuBar\tCtrl+V'), wx.ART_PASTE)
+            misc.bind_menu_item_after(widget, i, clipboard.paste, self)
+            if self.menubar: i.Enable(False)
+        elif clipboard.check("toolbar") and "toolbar" in self.properties:
+            i = misc.append_menu_item(menu, -1, _('Paste ToolBar\tCtrl+V'), wx.ART_PASTE)
+            misc.bind_menu_item_after(widget, i, clipboard.paste, self)
+            if self.toolbar: i.Enable(False)
+        elif clipboard.check("statusbar") and "statusbar" in self.properties:
+            i = misc.append_menu_item(menu, -1, _('Paste StatusBar\tCtrl+V'), wx.ART_PASTE)
+            misc.bind_menu_item_after(widget, i, clipboard.paste, self)
+            if self.statusbar: i.Enable(False)
+        else:
+            i = misc.append_menu_item(menu, -1, _('Paste Sizer\tCtrl+V'), wx.ART_PASTE)
+            misc.bind_menu_item_after(widget, i, clipboard.paste, self)
+            # XXX change later on to allow other widgets to be pasted
+            if self.children or not clipboard.check("sizer"): i.Enable(False)
 
         # preview
         menu.AppendSeparator()
@@ -997,6 +1016,7 @@ class TopLevelBase(WindowBase, PreviewMixin):
             self.on_set_focus(event)  # default behaviour: call show_properties
             return
         if self.widget: self.widget.SetCursor(wx.STANDARD_CURSOR)
+        common.history.widget_adding(self)
         new_widget = common.widgets[common.widget_to_add](self, None)
         if new_widget is None: return
         misc.rebuild_tree(new_widget)
@@ -1004,6 +1024,7 @@ class TopLevelBase(WindowBase, PreviewMixin):
         if event is None or not misc.event_modifier_copy(event):
             common.adding_widget = common.adding_sizer = False
             common.widget_to_add = None
+        common.history.widget_added(new_widget)
 
     def check_drop_compatibility(self):
         if self.children:
@@ -1029,6 +1050,9 @@ class TopLevelBase(WindowBase, PreviewMixin):
         if not modified or "name" in modified and (self.name!=self._oldname):
             self.parent.update_top_window_name(self._oldname, self.name)
             self._oldname = self.name
+
+        if not modified or "class" in modified:
+            actions.add("label")
 
         WindowBase._properties_changed(self, modified, actions)
 
@@ -1100,7 +1124,7 @@ class EditStylesMixin(np.PropertyOwner):
     update_widget_style = True # Flag to update the widget style if a style is set using set_style()
     recreate_on_style_change = False
 
-    def __init__(self, styles=[]):
+    def __init__(self, style=0, styles=[]):
         """Initialise instance
 
         klass: Name of the wxWidget klass
@@ -1123,7 +1147,7 @@ class EditStylesMixin(np.PropertyOwner):
                 self.style_names = styles
         else:
             self.style_names = self.widget_writer.style_list
-        self.style = np.WidgetStyleProperty()  # this will read it's default value
+        self.style = np.WidgetStyleProperty(style)  # this will read it's default value
 
     @decorators.memoize
     def wxname2attr(self, name):

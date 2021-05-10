@@ -3,7 +3,7 @@ Classes to handle and display the structure of a wxGlade app
 
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2014-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -24,6 +24,9 @@ class WidgetTree(wx.TreeCtrl):#, Tree):
         if wx.Platform == '__WXGTK__':    style |= wx.TR_NO_LINES|wx.TR_FULL_ROW_HIGHLIGHT
         elif wx.Platform == '__WXMAC__':  style &= ~wx.TR_ROW_LINES
         wx.TreeCtrl.__init__(self, parent, -1, style=style)
+        scale = config.preferences.font_scale_tree
+        if scale!=1.0:
+            self.SetFont( self.GetFont().Scaled(scale) )
         self.cur_widget = None  # reference to the selected widget
         self.root = application
         self._load_images()

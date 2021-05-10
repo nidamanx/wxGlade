@@ -3,7 +3,7 @@ Application class to store properties of the application being created
 
 @copyright: 2002-2007 Alberto Griggio <agriggio@users.sourceforge.net>
 @copyright: 2012-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -11,7 +11,7 @@ Application class to store properties of the application being created
 import os, sys, random, re, logging, time
 import wx
 
-import common, config, misc, plugins, compat
+import common, config, misc, compat, clipboard
 import bugdialog
 import new_properties as np
 
@@ -88,10 +88,12 @@ class EditRoot(np.PropertyOwner):
         # XXX index is always None at the moment
         if index is None:
             self.children.append(child)
-        else:
-            if len(self.children)<=index:
-                self.children += [None]*(index - len(self.children) + 1)
+        elif len(self.children)<=index:
+            self.children += [None]*(index - len(self.children) + 1)
             self.children[index] = child
+        else:
+            if self.children[index] is not None:
+                self.children.insert(index, child)
         if child.IS_TOPLEVEL_WINDOW:
             self.add_top_window(child.name)
 
@@ -170,6 +172,37 @@ class EditRoot(np.PropertyOwner):
         pass
 
 
+class _DirDialog:
+    def __init__(self, parent, message, style):
+        self.parent = parent
+        self.message = message
+        self.style = style
+        self.value = None
+    def ShowModal(self):
+        self.value = wx.DirSelector( self.message, self.value, self.style )
+        if self.value:
+            return wx.ID_OK
+    def set_value(self, value):
+        self.value = value
+    def get_value(self):
+        return self.value
+
+
+class OutputPathProperty(np.FileNameProperty):
+    dir_message = _("Choose a directory")
+    def _create_dialog(self):
+        if not self.owner.multiple_files:
+            return np.FileNameProperty._create_dialog(self)
+        parent = self.text.GetTopLevelParent()
+        style = wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST | wx.DD_NEW_DIR_BUTTON
+        dlg = _DirDialog(parent, self.dir_message, style=style)
+        value = self.value
+        if not value or value.strip()=="." and self.owner.filename:
+            value = os.path.dirname(self.owner.filename)
+        dlg.set_value(value)
+        return dlg
+
+
 class Application(EditRoot):
     "Properties of the application being created"
 
@@ -241,9 +274,9 @@ class Application(EditRoot):
         # C++ file extension
         self.source_extension = np.TextProperty('cpp')
         self.header_extension = np.TextProperty('h')
-        # output path
+        # output path: file or directory, depening on 'multiple_files'
         output_path = config.default_output_path  if self.multiple_files else  config.default_output_file
-        self.output_path = np.FileNameProperty(output_path, style=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT)
+        self.output_path = OutputPathProperty(output_path, style=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT)
         self._update_output_path('python')
 
         self.overwrite = np.InvCheckBoxProperty(config.default_overwrite)
@@ -415,13 +448,16 @@ class Application(EditRoot):
             self.properties["top_window"].set_active(self.name or self.klass)
         if not modified or "overwrite" in modified:
             block = not self.overwrite
-            self.properties["mark_blocks"].set_blocked(block)
+            p = self.properties["mark_blocks"]
+            p.set_blocked(block)
             if block:
-                self.properties["mark_blocks"].set(True)
-            self.properties["mark_blocks"].set_blocked(block)
+                if common.history: common.history.monitor_property( p )
+                p.set(True)
+            p.set_blocked(block)
         if modified and len(modified)==1 and "multiple_files" in modified:
             # the user has just edited
             p = self.properties["output_path"]
+            if common.history: common.history.monitor_property( p )
             if self.multiple_files:
                 p.set(os.path.dirname(p.value) or ".")
             else:
@@ -754,6 +790,19 @@ class Application(EditRoot):
         menu = misc.wxGladePopupMenu("Application")
         i = misc.append_menu_item( menu, -1, _('Generate Code') )
         misc.bind_menu_item_after(widget, i, self.generate_code)  # a property, but it can be called
+
+        # paste
+        if clipboard.check("menubar"):
+            i = misc.append_menu_item(menu, -1, _('Paste MenuBar\tCtrl+V'), wx.ART_PASTE)
+            misc.bind_menu_item_after(widget, i, clipboard.paste, self)
+        elif clipboard.check("toolbar"):
+            i = misc.append_menu_item(menu, -1, _('Paste ToolBar\tCtrl+V'), wx.ART_PASTE)
+            misc.bind_menu_item_after(widget, i, clipboard.paste, self)
+        else:
+            i = misc.append_menu_item(menu, -1, _('Paste Toplevel Window\tCtrl+V'), wx.ART_PASTE)
+            misc.bind_menu_item_after(widget, i, clipboard.paste, self)
+            if not clipboard.check("window"): i.Enable(False)
+
         return menu
 
     def check_drop_compatibility(self):
@@ -768,10 +817,10 @@ class Application(EditRoot):
             return (True, None)
         return (False, "Only toplevel widgets can be pasted here (e.g. Frame or Dialog)")
 
-    def clipboard_paste(self, clipboard_data):
+    def clipboard_paste(self, clipboard_data, index=None):
         "Insert a widget from the clipboard to the current destination"
         import clipboard
-        return clipboard._paste(None, 0, clipboard_data)
+        return clipboard._paste(None, index, clipboard_data)
 
     ####################################################################################################################
     def _label_editable(self):

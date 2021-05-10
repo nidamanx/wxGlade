@@ -3,7 +3,7 @@ wxCheckBox objects
 
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2014-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -53,6 +53,7 @@ class EditCheckBox(ManagedBase, EditStylesMixin):
             else:
                 checked_p.enable_item(2, False)
                 if checked_p.value == 2:
+                    if common.history: common.history.monitor_property( checked_p )
                     checked_p.set(0)
 
         if not modified or "checked" in modified:

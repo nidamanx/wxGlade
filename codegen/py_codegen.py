@@ -4,7 +4,7 @@ Python code generator
 @copyright: John Dubery
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2012-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -396,8 +396,8 @@ from %(top_win_module)s import %(top_win_class)s\n\n"""
                 indent = self.tabs(1)  # one additional level
                 lines.insert(0, '%stry:\n'%tab)
                 lines[1] = indent + lines[1]  # indent by one level
-                lines.append( '%sexcept AttributeError:\n'%tab )
-                lines.append( '%s%sprint("unknown event %s")\n'%(indent, tab, event) )
+                lines.append( '%sexcept:\n'%tab )
+                lines.append( '%s%sprint("could not bind event %s - ignoring error for preview")\n'%(indent, tab, event) )
 
             code_lines += lines
 
@@ -524,9 +524,10 @@ from %(top_win_module)s import %(top_win_class)s\n\n"""
         return os.path.join( self.out_dir, klass.replace('.', os.sep) + '.py' )
 
     def format_generic_access(self, obj):
-        if obj.IS_CLASS:
-            return 'self'
-        return self._format_classattr(obj)
+        ret = self.get_cached(obj, 'attribute_access')
+        if ret is not None: return ret
+        ret = obj.IS_CLASS and 'self' or self._format_classattr(obj)
+        return self.cache(obj, 'attribute_access', ret)
 
 
 writer = PythonCodeWriter()  # The code writer is an instance of PythonCodeWriter.

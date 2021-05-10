@@ -3,7 +3,7 @@ Global functions and variables
 
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2013-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -775,6 +775,7 @@ class Preferences(ConfigParser.ConfigParser):
         'use_dialog_units': False,
         'allow_custom_widgets':False,
         'number_history': 12,
+        'font_scale_tree': 1.0,
         'show_progress': True,
         'wxg_backup': True,
         'codegen_backup': True,

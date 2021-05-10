@@ -3,7 +3,7 @@ wxFrame objects (incl. wxMenuBar, wxToolBar and wxStatusBar)
 
 @copyright: 2002-2007 Alberto Griggio
 @copyright: 2014-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -61,8 +61,8 @@ class EditFrame(BitmapMixin, TopLevelBase, EditStylesMixin):
                          "statusbar":'Has StatusBar' }
     ATT_CHILDREN = ["_menubar", "_statusbar", "_toolbar"]
 
-    def __init__(self, name, parent, klass, title, style=wx.DEFAULT_FRAME_STYLE): #XXX style is not used
-        TopLevelBase.__init__(self, name, parent, klass, title)
+    def __init__(self, name, parent, index, klass, title, style=wx.DEFAULT_FRAME_STYLE):
+        TopLevelBase.__init__(self, name, parent, index, klass, title)
         EditStylesMixin.__init__(self)
         self.properties["style"].set(style)
 
@@ -92,9 +92,6 @@ class EditFrame(BitmapMixin, TopLevelBase, EditStylesMixin):
             self.widget.SetSize((400, 300))
         if wx.Platform == '__WXMSW__':
             self.widget.CenterOnScreen()
-        if self.check_prop_truth("menubar")   and self._menubar.widget:   self.widget.SetMenuBar(self._menubar.widget)
-        if self.check_prop_truth("statusbar") and self._statusbar.widget: self.widget.SetStatusBar(self._statusbar.widget)
-        if self.check_prop_truth("toolbar")   and self._toolbar.widget:   self.widget.SetToolBar(self._toolbar.widget)
 
     def _set_widget_icon(self):
         if self.icon:
@@ -162,7 +159,7 @@ def builder(parent, index, klass=None, base=None, name=None):
         base_class = EditFrame
     else:
         base_class = EditMDIChildFrame
-    editor = base_class(name, parent, klass, name, "wxDEFAULT_FRAME_STYLE")
+    editor = base_class(name, parent, index, klass, name, "wxDEFAULT_FRAME_STYLE")
     editor.properties['size'].set( (400,300), activate=True )
     editor.design.update_label()
 
@@ -187,7 +184,7 @@ def xml_builder(parser, base, name, parent, index):
         style = "wxDEFAULT_FRAME_STYLE"
     else:
         style = 0
-    return _base_classes[base](name, parent, "Frame", "", style)
+    return _base_classes[base](name, parent, index, "Frame", "", style)
 
 
 def initialize():

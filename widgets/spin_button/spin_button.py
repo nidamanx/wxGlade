@@ -5,7 +5,7 @@ based on wxGlade/widgets/spin_ctrl/
 
 @copyright: 2004 D.H. aka crazyinsomniac at users.sourceforge.net
 @copyright: 2014-2016 Carsten Grohmann
-@copyright: 2016-2020 Dietmar Schwertberger
+@copyright: 2016-2021 Dietmar Schwertberger
 @license: MIT (see LICENSE.txt) - THIS PROGRAM COMES WITH NO WARRANTY
 """
 
@@ -23,9 +23,9 @@ class EditSpinButton(ManagedBase, EditStylesMixin):
     PROPERTIES = ManagedBase.PROPERTIES + _PROPERTIES + ManagedBase.EXTRA_PROPERTIES
     recreate_on_style_change = True
 
-    def __init__(self, name, parent, index):
+    def __init__(self, name, parent, index, style='wxSP_VERTICAL'):
         ManagedBase.__init__(self, name, parent, index)
-        EditStylesMixin.__init__(self)
+        EditStylesMixin.__init__(self, style)
 
         # initialise instance properties
         self.range = np.IntRangePropertyA( "0, 100" )
@@ -45,6 +45,7 @@ class EditSpinButton(ManagedBase, EditStylesMixin):
         if not modified or "value" in modified or "range" in modified:
             # check that value is inside range
             value_p = self.properties["value"]
+            if common.history: common.history.monitor_property( value_p )
             if value_p.is_active():
                 mi,ma = self.properties["range"].get_tuple()
                 value = value_p.get()
@@ -65,7 +66,6 @@ def builder(parent, index):
     name = parent.toplevel_parent.get_next_contained_name('spin_button_%d')
     with parent.frozen():
         editor = EditSpinButton(name, parent, index)
-        editor.properties["style"].set_to_default()
         editor.check_defaults()
         if parent.widget: editor.create()
     return editor
@@ -73,7 +73,7 @@ def builder(parent, index):
 
 def xml_builder(parser, base, name, parent, index):
     "factory function to build EditSpinButton objects from a XML file"
-    return EditSpinButton(name, parent, index)
+    return EditSpinButton(name, parent, index, '')
 
 
 def initialize():
